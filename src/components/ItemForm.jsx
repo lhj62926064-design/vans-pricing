@@ -12,7 +12,7 @@
  */
 
 import { useCallback } from 'react';
-import { generateOptionId } from './PricingCalculator';
+import { generateOptionId } from './pricing/PricingTab';
 
 /** 숫자 입력값 처리 (빈 문자열 허용) */
 function numVal(val) {

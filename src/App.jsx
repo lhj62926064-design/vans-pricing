@@ -4,13 +4,13 @@
  * ErrorBoundary로 감싸서 에러 시 전체 크래시를 방지합니다.
  */
 
-import PricingCalculator from './components/PricingCalculator';
+import MainApp from './components/MainApp';
 import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
   return (
     <ErrorBoundary>
-      <PricingCalculator />
+      <MainApp />
     </ErrorBoundary>
   );
 }

@@ -265,6 +265,102 @@ export function computeItemRows(item, roundUnit = 1000) {
 }
 
 /**
+ * 경쟁사 가격 기반 자동 수가 생성
+ *
+ * 알고리즘:
+ *   1. 경쟁사 단가에서 할인율 적용 → 이벤트가 단가
+ *   2. 이벤트가에 마크업 적용 → 체험가
+ *   3. 각 옵션 구간별 점진적 할인 적용 (단조 하락 보장)
+ *
+ * @param {object} config     - 자동 가격 설정
+ * @param {object} competitor - 경쟁사 데이터 { price, sessions, shots }
+ * @param {string} type       - 시술 유형 (session | shot | mixed)
+ * @param {number} roundUnit  - 반올림 단위
+ * @returns {object} { trialPrice, eventPrice, baseShots, options }
+ */
+export function generateAutoPricing(config, competitor, type, roundUnit) {
+  const {
+    competitorDiscount = 10,
+    trialMarkup = 15,
+    sessionTiers = [3, 5, 10],
+    shotTiers = [300, 600, 1000],
+    minDiscountStep = 1000,
+  } = config;
+
+  const compUnitPrice = calcUnitPrice(
+    type,
+    competitor.price,
+    competitor.sessions || 1,
+    competitor.shots || 100,
+    roundUnit,
+  );
+
+  if (compUnitPrice <= 0) {
+    return { trialPrice: 0, eventPrice: 0, baseShots: 100, options: [] };
+  }
+
+  // 우리 이벤트가 단가 = 경쟁사 - 할인%
+  const eventUnitPrice = roundPrice(
+    compUnitPrice * (1 - competitorDiscount / 100),
+    roundUnit,
+  );
+
+  // 이벤트가 (1회/기준샷수 기준)
+  const baseShots = competitor.shots || 100;
+  const eventPrice =
+    type === 'session'
+      ? eventUnitPrice
+      : roundPrice(eventUnitPrice * baseShots, roundUnit);
+
+  // 체험가 = 이벤트가 + 마크업
+  const trialPrice = roundPrice(eventPrice * (1 + trialMarkup / 100), roundUnit);
+
+  // 옵션 생성 (점진적 할인, 단조 하락 보장)
+  const tiers = type === 'shot' ? shotTiers : sessionTiers;
+  const options = [];
+  let prevUnitPrice = eventUnitPrice;
+
+  for (let i = 0; i < tiers.length; i++) {
+    const tierValue = tiers[i];
+    if (tierValue <= 0) continue;
+
+    const baseQty = type === 'shot' ? baseShots : 1;
+    const tierRatio = tierValue / baseQty;
+    if (tierRatio <= 1) continue;
+
+    // 점진적 할인: sqrt 곡선
+    const progressiveDiscount = 1 - 1 / Math.sqrt(tierRatio);
+    let targetUnitPrice = roundPrice(
+      eventUnitPrice * (1 - progressiveDiscount),
+      roundUnit,
+    );
+
+    // 단조 하락 보장
+    if (targetUnitPrice >= prevUnitPrice) {
+      targetUnitPrice = prevUnitPrice - (minDiscountStep || roundUnit);
+    }
+    targetUnitPrice = Math.max(roundPrice(targetUnitPrice, roundUnit), 0);
+
+    const totalPrice = roundPrice(targetUnitPrice * tierValue, roundUnit);
+
+    const opt = { _id: Date.now() + i, price: totalPrice };
+    if (type === 'session') {
+      opt.sessions = tierValue;
+    } else if (type === 'shot') {
+      opt.shots = tierValue;
+    } else {
+      opt.shots = tierValue;
+      opt.sessions = 1;
+    }
+
+    options.push(opt);
+    prevUnitPrice = targetUnitPrice;
+  }
+
+  return { trialPrice, eventPrice, baseShots, options };
+}
+
+/**
  * 단가 라벨 반환 (유형별)
  * @param {string} type - 시술 유형
  * @returns {string} "회당가" 또는 "샷당가"
