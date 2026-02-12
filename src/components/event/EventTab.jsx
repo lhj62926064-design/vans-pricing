@@ -13,6 +13,7 @@ import BulkPackageInput from './BulkPackageInput';
 import PackageCard from './PackageCard';
 import ProcedureLibrary from './ProcedureLibrary';
 import PackageExport from './PackageExport';
+import PackageArchive, { addToArchive } from './PackageArchive';
 import BranchSelector from '../branch/BranchSelector';
 import { computePackageSummary, calcPackagePriceFromDiscount } from '../../utils/packagePricing';
 import { formatNumber } from '../../utils/pricing';
@@ -103,6 +104,15 @@ export default function EventTab({ onToast }) {
     setPackages((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
+  const duplicatePackage = useCallback((idx) => {
+    setPackages((prev) => {
+      const source = prev[idx];
+      const clone = { ...source, id: Date.now() + Math.random(), name: source.name + ' (복사)', items: source.items.map(i => ({...i})) };
+      return [...prev.slice(0, idx + 1), clone, ...prev.slice(idx + 1)];
+    });
+    onToast?.('패키지가 복제되었습니다');
+  }, [onToast]);
+
   // ── 목표 할인율로 전체 자동 계산 ──
   const applyTargetDiscount = useCallback(() => {
     const discount = Number(targetDiscount) || 0;
@@ -187,6 +197,29 @@ export default function EventTab({ onToast }) {
       localStorage.setItem('vans-pricing-packages', JSON.stringify(updated));
     } catch {}
   }, [savedPackages]);
+
+  // ── 저장된 패키지 개별 수정 ──
+  const editSinglePackage = useCallback((id) => {
+    const pkg = savedPackages.find((p) => p.id === id);
+    if (!pkg) return;
+    setPackages((prev) => [...prev, { ...pkg, items: pkg.items.map(i => ({...i})) }]);
+    const updated = savedPackages.filter((p) => p.id !== id);
+    setSavedPackages(updated);
+    try {
+      localStorage.setItem('vans-pricing-packages', JSON.stringify(updated));
+    } catch {}
+    onToast?.('패키지를 편집 모드로 불러왔습니다');
+  }, [savedPackages, onToast]);
+
+  // ── 아카이브에 저장 ──
+  const archivePackages = useCallback(() => {
+    if (savedPackages.length === 0) return;
+    const groupName = window.prompt('아카이브 대분류명을 입력하세요\n(예: 1월 한정이벤트, 2월 프로모션)',
+      new Date().toLocaleDateString('ko-KR') + ' 이벤트');
+    if (!groupName) return;
+    addToArchive(groupName, savedPackages, '자사', activeBranch || 'VANS');
+    onToast?.(`${savedPackages.length}개 패키지가 아카이브에 저장되었습니다`);
+  }, [savedPackages, activeBranch, onToast]);
 
   // 패키지 요약 (내보내기용)
   const packageSummaries = useMemo(() => {
@@ -320,6 +353,7 @@ export default function EventTab({ onToast }) {
                 index={idx}
                 onChange={(updated) => updatePackage(idx, updated)}
                 onRemove={() => removePackage(idx)}
+                onDuplicate={() => duplicatePackage(idx)}
                 branchProcedures={branchProcedures}
                 activeBranch={activeBranch}
               />
@@ -354,6 +388,12 @@ export default function EventTab({ onToast }) {
               저장된 패키지 ({savedPackages.length}개)
             </h3>
             <div className="flex gap-2">
+              <button
+                onClick={archivePackages}
+                className="text-xs px-3 py-1.5 text-teal-600 hover:bg-teal-50 rounded transition-colors font-medium"
+              >
+                아카이브 저장
+              </button>
               <button
                 onClick={editSavedPackages}
                 className="text-xs px-3 py-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
@@ -435,6 +475,12 @@ export default function EventTab({ onToast }) {
                       </button>
                     )}
                     <button
+                      onClick={() => editSinglePackage(pkg.id)}
+                      className="text-xs px-2 py-1 text-indigo-500 hover:bg-indigo-50 rounded transition-colors"
+                    >
+                      수정
+                    </button>
+                    <button
                       onClick={() => deleteSavedPackage(pkg.id)}
                       className="text-xs px-2 py-1 text-red-500 hover:bg-red-50 rounded transition-colors"
                     >
@@ -452,6 +498,9 @@ export default function EventTab({ onToast }) {
           </div>
         </div>
       )}
+
+      {/* 패키지 아카이브 */}
+      <PackageArchive onToast={onToast} />
     </div>
   );
 }

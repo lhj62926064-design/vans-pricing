@@ -9,7 +9,7 @@ import { useState, useMemo } from 'react';
 import { formatNumber } from '../../utils/pricing';
 import { computePackageSummary } from '../../utils/packagePricing';
 
-export default function PackageCard({ pkg, index, onChange, onRemove, branchProcedures = [], activeBranch }) {
+export default function PackageCard({ pkg, index, onChange, onRemove, onDuplicate, branchProcedures = [], activeBranch }) {
   const summary = useMemo(() => computePackageSummary(pkg), [pkg]);
   const [openPriceDropdown, setOpenPriceDropdown] = useState(null);
 
@@ -77,6 +77,15 @@ export default function PackageCard({ pkg, index, onChange, onRemove, branchProc
                      focus:outline-none focus:ring-0 placeholder-gray-400"
           placeholder="패키지명"
         />
+        {onDuplicate && (
+          <button
+            onClick={onDuplicate}
+            className="text-gray-400 hover:text-indigo-500 transition-colors text-sm shrink-0 px-1"
+            title="패키지 복제"
+          >
+            ⧉
+          </button>
+        )}
         <button
           onClick={onRemove}
           className="text-gray-400 hover:text-red-500 transition-colors text-sm font-bold shrink-0 px-1"
@@ -157,6 +166,15 @@ export default function PackageCard({ pkg, index, onChange, onRemove, branchProc
                   </div>
                 )}
               </div>
+              {item.individualPrice > 0 && item.priceSource && item.priceSource !== 'manual' && (
+                <span className={`text-[10px] leading-none px-1 py-0.5 rounded shrink-0 ${
+                  item.priceSource === 'branch'
+                    ? 'bg-teal-100 text-teal-700'
+                    : 'bg-indigo-100 text-indigo-700'
+                }`}>
+                  {item.priceSource === 'branch' ? '수가' : '라이브러리'}
+                </span>
+              )}
               <span className="text-xs text-gray-400 shrink-0">원</span>
               {pkg.items.length > 1 && (
                 <button
