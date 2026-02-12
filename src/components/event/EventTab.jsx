@@ -13,10 +13,24 @@ import BulkPackageInput from './BulkPackageInput';
 import PackageCard from './PackageCard';
 import ProcedureLibrary from './ProcedureLibrary';
 import PackageExport from './PackageExport';
+import BranchSelector from '../branch/BranchSelector';
 import { computePackageSummary, calcPackagePriceFromDiscount } from '../../utils/packagePricing';
 import { formatNumber } from '../../utils/pricing';
+import { getActiveBranch, setActiveBranch, loadBranchData } from '../../utils/branchStorage';
 
 export default function EventTab({ onToast }) {
+  // 지점 수가 연동
+  const [activeBranch, setActiveBranchState] = useState(() => getActiveBranch());
+  const branchProcedures = useMemo(() => {
+    if (!activeBranch) return [];
+    return loadBranchData(activeBranch);
+  }, [activeBranch]);
+
+  const handleBranchChange = useCallback((branch) => {
+    setActiveBranchState(branch);
+    setActiveBranch(branch);
+  }, []);
+
   // 시술 라이브러리
   const [procedures, setProcedures] = useState(() => {
     try {
@@ -209,10 +223,22 @@ export default function EventTab({ onToast }) {
           </div>
         )}
 
+        {/* 지점 수가 연동 */}
+        <div className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-100">
+          <span className="text-xs text-gray-500 shrink-0">지점 수가 연동:</span>
+          <BranchSelector value={activeBranch} onChange={handleBranchChange} size="sm" />
+          {activeBranch && branchProcedures.length > 0 && (
+            <span className="text-xs text-teal-600 font-medium">
+              {branchProcedures.length}개 항목 연동 중
+            </span>
+          )}
+        </div>
+
         {/* 벌크 텍스트 입력 */}
         {packages.length === 0 && (
           <BulkPackageInput
             procedures={procedures}
+            branchProcedures={branchProcedures}
             onParsed={handleParsed}
           />
         )}

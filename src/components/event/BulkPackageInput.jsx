@@ -6,20 +6,24 @@
  */
 
 import { useState } from 'react';
-import { parsePackageText, matchProcedurePrices } from '../../utils/packagePricing';
+import { parsePackageText, matchProcedurePrices, matchBranchPrices } from '../../utils/packagePricing';
 
 const EXAMPLE_TEXT = `●슈링크300+인모드fx 얼전 690,000원
 ●파워윤곽주사 3회 99,000원
 ●슈링크유니버스600+인모드fx 얼전 990,000원
 ●슈링크300+인모드fx 바디전신 1,200,000원`;
 
-export default function BulkPackageInput({ procedures, onParsed }) {
+export default function BulkPackageInput({ procedures, branchProcedures, onParsed }) {
   const [text, setText] = useState('');
 
   const handleParse = () => {
     if (!text.trim()) return;
     let parsed = parsePackageText(text);
-    // 시술 라이브러리에서 가격 자동 매칭
+    // 지점 수가에서 가격 매칭 (낮은 우선순위)
+    if (branchProcedures && branchProcedures.length > 0) {
+      parsed = matchBranchPrices(parsed, branchProcedures);
+    }
+    // 수동 시술 라이브러리에서 가격 매칭 (높은 우선순위, 덮어쓰기)
     parsed = matchProcedurePrices(parsed, procedures);
     onParsed(parsed);
   };

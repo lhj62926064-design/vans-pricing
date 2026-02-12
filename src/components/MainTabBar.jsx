@@ -1,6 +1,7 @@
 const TABS = [
   { key: 'pricing', label: '수가 책정', icon: '📊' },
   { key: 'event', label: '한정 이벤트', icon: '🎯' },
+  { key: 'branch', label: '지점 수가', icon: '🏥' },
 ];
 
 export default function MainTabBar({ activeTab, onTabChange }) {

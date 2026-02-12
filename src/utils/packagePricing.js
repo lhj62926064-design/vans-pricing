@@ -110,6 +110,70 @@ export function matchProcedurePrices(packages, procedures) {
 }
 
 /**
+ * 지점 수가 라이브러리에서 가격 매칭
+ * @param {Array} packages - parsePackageText 결과
+ * @param {Array} branchProcedures - 지점 CSV 데이터 [{name, standardPrice, category}]
+ * @returns {Array} 가격이 매칭된 패키지 배열
+ */
+export function matchBranchPrices(packages, branchProcedures) {
+  if (!branchProcedures || branchProcedures.length === 0) return packages;
+
+  return packages.map((pkg) => ({
+    ...pkg,
+    items: pkg.items.map((item) => {
+      // 이미 수동 라이브러리에서 가격이 매칭된 경우 스킵
+      if (item.individualPrice > 0 && item.priceSource !== 'branch') return item;
+
+      const match = findBestBranchMatch(item.procedureName, branchProcedures);
+      if (match) {
+        return {
+          ...item,
+          individualPrice: match.standardPrice,
+          priceSource: 'branch',
+          branchCategory: match.category,
+        };
+      }
+      return item;
+    }),
+  }));
+}
+
+/**
+ * 지점 수가에서 최적 매칭 찾기
+ * 우선순위: 정확 일치 > 정규화 일치 > 포함 > 토큰 매칭
+ */
+function findBestBranchMatch(name, procedures) {
+  if (!name) return null;
+  const normalized = name.replace(/\s+/g, '').toLowerCase();
+
+  // 1. 정확 일치
+  let match = procedures.find((p) => p.name === name);
+  if (match) return match;
+
+  // 2. 공백 정규화 일치
+  match = procedures.find((p) => p.name.replace(/\s+/g, '').toLowerCase() === normalized);
+  if (match) return match;
+
+  // 3. 포함 (양방향)
+  match = procedures.find((p) =>
+    p.name.replace(/\s+/g, '').toLowerCase().includes(normalized) ||
+    normalized.includes(p.name.replace(/\s+/g, '').toLowerCase())
+  );
+  if (match) return match;
+
+  // 4. 토큰 매칭 (모든 단어가 포함)
+  const tokens = name.split(/\s+/).filter((t) => t.length > 1);
+  if (tokens.length > 1) {
+    match = procedures.find((p) => {
+      const pNorm = p.name.replace(/\s+/g, '').toLowerCase();
+      return tokens.every((t) => pNorm.includes(t.toLowerCase()));
+    });
+  }
+
+  return match || null;
+}
+
+/**
  * 목표 할인율로 패키지가 자동 계산
  * @param {object} pkg - 패키지 (items 포함)
  * @param {number} targetDiscountPercent - 목표 할인율 (예: 30 → 30%)

@@ -10,6 +10,7 @@ import MainTabBar from './MainTabBar';
 import Toast from './Toast';
 import PricingTab from './pricing/PricingTab';
 import EventTab from './event/EventTab';
+import BranchTab from './branch/BranchTab';
 import { autoLoad, saveRoundUnit, loadRoundUnit } from '../utils/storage';
 
 export default function MainApp() {
@@ -47,6 +48,9 @@ export default function MainApp() {
           )}
           {mainTab === 'event' && (
             <EventTab onToast={showToast} />
+          )}
+          {mainTab === 'branch' && (
+            <BranchTab onToast={showToast} />
           )}
         </div>
       </main>
