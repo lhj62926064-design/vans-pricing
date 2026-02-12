@@ -207,3 +207,82 @@ export function compareProcedureAcrossBranches(procedureName) {
 
   return results.sort((a, b) => a.standardPrice - b.standardPrice);
 }
+
+/**
+ * 전 지점에서 시술명 자동완성 검색 (한 글자부터)
+ * 이름 중복 제거 후 query 포함 항목 반환
+ * @param {string} query - 검색어
+ * @param {number} limit - 최대 결과 수
+ * @returns {Array<{ name: string, category: string, branches: Array<{ branch: string, price: number }> }>}
+ */
+export function searchProceduresAcrossAllBranches(query, limit = 20) {
+  if (!query || !query.trim()) return [];
+  const manifest = loadManifest();
+  const q = query.replace(/\s+/g, '').toLowerCase();
+
+  // 모든 지점 데이터를 name 기준으로 합침
+  const nameMap = new Map(); // key: normalized name, value: { name, category, branches }
+
+  for (const branch of manifest.branches) {
+    const data = loadBranchData(branch.name);
+    for (const item of data) {
+      const norm = item.name.replace(/\s+/g, '').toLowerCase();
+      if (!norm.includes(q)) continue;
+
+      if (!nameMap.has(norm)) {
+        nameMap.set(norm, {
+          name: item.name,
+          category: item.category || '',
+          branches: [],
+        });
+      }
+      nameMap.get(norm).branches.push({
+        branch: branch.name,
+        price: item.standardPrice,
+      });
+    }
+  }
+
+  return [...nameMap.values()]
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+    .slice(0, limit);
+}
+
+/**
+ * 여러 시술 동시 비교
+ * @param {string[]} procedureNames - 비교할 시술명 배열
+ * @param {string[]} branchFilter - 선택된 지점 (빈 배열이면 전체)
+ * @returns {Array<{ name: string, category: string, prices: { [branchName]: number } }>}
+ */
+export function compareMultipleProcedures(procedureNames, branchFilter = []) {
+  if (!procedureNames || procedureNames.length === 0) return [];
+  const manifest = loadManifest();
+  const branches = branchFilter.length > 0
+    ? manifest.branches.filter((b) => branchFilter.includes(b.name))
+    : manifest.branches;
+
+  // 각 지점의 데이터를 한번만 로드
+  const branchDataMap = new Map();
+  for (const branch of branches) {
+    branchDataMap.set(branch.name, loadBranchData(branch.name));
+  }
+
+  return procedureNames.map((procName) => {
+    const normalized = procName.replace(/\s+/g, '').toLowerCase();
+    const prices = {};
+    let category = '';
+
+    for (const [branchName, data] of branchDataMap) {
+      const match = data.find((p) => {
+        const pNorm = p.name.replace(/\s+/g, '').toLowerCase();
+        return pNorm === normalized || pNorm.includes(normalized) || normalized.includes(pNorm);
+      });
+      if (match) {
+        prices[branchName] = match.standardPrice;
+        if (!category && match.category) category = match.category;
+      }
+    }
+
+    return { name: procName, category, prices };
+  });
+}
