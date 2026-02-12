@@ -164,8 +164,8 @@ export default function BranchComparison() {
                   <span className="text-xs text-gray-500 shrink-0">
                     ~{formatNumber(avgPrice)}원
                   </span>
-                  <span className="text-xs text-gray-400 shrink-0">
-                    {s.branches.length}개 지점
+                  <span className="text-xs text-gray-400 shrink-0 max-w-[180px] truncate" title={s.branches.map((b) => b.branch).join(', ')}>
+                    {s.branches.map((b) => b.branch).join(', ')}
                   </span>
                 </button>
               );
