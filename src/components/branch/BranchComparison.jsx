@@ -136,7 +136,7 @@ export default function BranchComparison() {
           <div
             ref={dropdownRef}
             className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200
-                       rounded-lg shadow-lg max-h-96 overflow-y-auto"
+                       rounded-lg shadow-lg max-h-[720px] overflow-y-auto"
           >
             {suggestions.map((s, i) => {
               const alreadySelected = selectedProcedures.some((p) => p.name === s.name);
