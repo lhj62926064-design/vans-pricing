@@ -320,6 +320,8 @@ export default function EventTab({ onToast }) {
                 index={idx}
                 onChange={(updated) => updatePackage(idx, updated)}
                 onRemove={() => removePackage(idx)}
+                branchProcedures={branchProcedures}
+                activeBranch={activeBranch}
               />
             ))}
           </div>

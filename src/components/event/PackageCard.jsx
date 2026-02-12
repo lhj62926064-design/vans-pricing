@@ -5,12 +5,13 @@
  * 할인율과 절약금액을 실시간 표시.
  */
 
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { formatNumber } from '../../utils/pricing';
 import { computePackageSummary } from '../../utils/packagePricing';
 
-export default function PackageCard({ pkg, index, onChange, onRemove }) {
+export default function PackageCard({ pkg, index, onChange, onRemove, branchProcedures = [], activeBranch }) {
   const summary = useMemo(() => computePackageSummary(pkg), [pkg]);
+  const [openPriceDropdown, setOpenPriceDropdown] = useState(null);
 
   const handleNameChange = (value) => {
     onChange({ ...pkg, name: value });
@@ -48,6 +49,16 @@ export default function PackageCard({ pkg, index, onChange, onRemove }) {
     onChange({ ...pkg, items });
   };
 
+  const findBranchMatches = (procedureName) => {
+    if (!procedureName || !branchProcedures.length) return [];
+    const q = procedureName.replace(/\s+/g, '').toLowerCase();
+    if (q.length < 2) return [];
+    return branchProcedures.filter((bp) => {
+      const name = bp.name.replace(/\s+/g, '').toLowerCase();
+      return name.includes(q) || q.includes(name);
+    }).slice(0, 10);
+  };
+
   const hasAllPrices = pkg.items.every((item) => Number(item.individualPrice) > 0);
   const savingsPositive = summary.savingsAmount > 0;
 
@@ -77,46 +88,87 @@ export default function PackageCard({ pkg, index, onChange, onRemove }) {
 
       {/* 구성 시술 */}
       <div className="px-4 py-3 space-y-1.5">
-        {pkg.items.map((item, idx) => (
-          <div key={idx} className="flex items-center gap-2">
-            <input
-              type="text"
-              value={item.procedureName}
-              onChange={(e) => handleItemName(idx, e.target.value)}
-              className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded text-xs
-                         focus:outline-none focus:ring-1 focus:ring-indigo-300"
-              placeholder="시술명"
-            />
-            <input
-              type="number"
-              value={item.quantity}
-              onChange={(e) => handleItemQty(idx, e.target.value)}
-              min="1"
-              className="w-12 px-1.5 py-1.5 border border-gray-200 rounded text-xs text-center
-                         focus:outline-none focus:ring-1 focus:ring-indigo-300"
-            />
-            <span className="text-xs text-gray-400 shrink-0">회</span>
-            <input
-              type="number"
-              value={item.individualPrice || ''}
-              onChange={(e) => handleItemPrice(idx, e.target.value)}
-              min="0"
-              placeholder="정가"
-              className={`w-24 px-2 py-1.5 border rounded text-xs text-right
-                         focus:outline-none focus:ring-1 focus:ring-indigo-300
-                         ${item.individualPrice > 0 ? 'border-gray-200' : 'border-orange-300 bg-orange-50'}`}
-            />
-            <span className="text-xs text-gray-400 shrink-0">원</span>
-            {pkg.items.length > 1 && (
-              <button
-                onClick={() => removeItem(idx)}
-                className="text-gray-300 hover:text-red-500 text-xs font-bold shrink-0"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        ))}
+        {pkg.items.map((item, idx) => {
+          const matches = findBranchMatches(item.procedureName);
+          const isOpen = openPriceDropdown === idx;
+          return (
+            <div key={idx} className="flex items-center gap-2 relative">
+              <input
+                type="text"
+                value={item.procedureName}
+                onChange={(e) => handleItemName(idx, e.target.value)}
+                className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded text-xs
+                           focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                placeholder="시술명"
+              />
+              <input
+                type="number"
+                value={item.quantity}
+                onChange={(e) => handleItemQty(idx, e.target.value)}
+                min="1"
+                className="w-12 px-1.5 py-1.5 border border-gray-200 rounded text-xs text-center
+                           focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              />
+              <span className="text-xs text-gray-400 shrink-0">회</span>
+              <div className="relative">
+                <div className="flex items-center gap-0.5">
+                  <input
+                    type="number"
+                    value={item.individualPrice || ''}
+                    onChange={(e) => handleItemPrice(idx, e.target.value)}
+                    min="0"
+                    placeholder="정가"
+                    className={`w-24 px-2 py-1.5 border rounded text-xs text-right
+                               focus:outline-none focus:ring-1 focus:ring-indigo-300
+                               ${item.individualPrice > 0 ? 'border-gray-200' : 'border-orange-300 bg-orange-50'}`}
+                  />
+                  {matches.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setOpenPriceDropdown(isOpen ? null : idx)}
+                      className={`px-1 py-1.5 text-xs rounded transition-colors shrink-0
+                        ${isOpen ? 'text-indigo-700 bg-indigo-100' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
+                      title={`${activeBranch || '지점'} 수가 선택`}
+                    >
+                      ▼
+                    </button>
+                  )}
+                </div>
+                {isOpen && matches.length > 0 && (
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg
+                                  max-h-48 overflow-y-auto min-w-[220px]">
+                    <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500">
+                      {activeBranch} 수가표
+                    </div>
+                    {matches.map((bp, mi) => (
+                      <button
+                        key={mi}
+                        type="button"
+                        onClick={() => {
+                          handleItemPrice(idx, bp.standardPrice);
+                          setOpenPriceDropdown(null);
+                        }}
+                        className="w-full px-3 py-2 text-left hover:bg-indigo-50 transition-colors flex items-center justify-between gap-2 text-xs"
+                      >
+                        <span className="text-gray-700 truncate">{bp.name}</span>
+                        <span className="font-bold text-indigo-700 shrink-0">{formatNumber(bp.standardPrice)}원</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <span className="text-xs text-gray-400 shrink-0">원</span>
+              {pkg.items.length > 1 && (
+                <button
+                  onClick={() => removeItem(idx)}
+                  className="text-gray-300 hover:text-red-500 text-xs font-bold shrink-0"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          );
+        })}
         <button
           onClick={addItem}
           className="text-xs text-indigo-500 hover:text-indigo-700 transition-colors"
