@@ -22,7 +22,7 @@ import {
 export default function BranchTab({ onToast }) {
   const [activeBranch, setActiveBranchState] = useState(() => getActiveBranch());
   const [showImport, setShowImport] = useState(false);
-  const [showComparison, setShowComparison] = useState(false);
+  const [showComparison, setShowComparison] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const branchData = useMemo(
