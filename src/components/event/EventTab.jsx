@@ -56,6 +56,9 @@ export default function EventTab({ onToast }) {
   // 시술 라이브러리 표시 토글
   const [showLibrary, setShowLibrary] = useState(false);
 
+  // 저장된 패키지 검색 쿼리
+  const [packageQuery, setPackageQuery] = useState('');
+
   // ── 시술 라이브러리 관리 ──
   const saveProcedures = useCallback((updated) => {
     setProcedures(updated);
@@ -173,6 +176,18 @@ export default function EventTab({ onToast }) {
     onToast?.('저장된 패키지가 모두 삭제되었습니다');
   }, [onToast]);
 
+  // ── 패키지 순서 변경 ──
+  const moveSavedPackage = useCallback((index, direction) => {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= savedPackages.length) return;
+    const updated = [...savedPackages];
+    [updated[index], updated[newIndex]] = [updated[newIndex], updated[index]];
+    setSavedPackages(updated);
+    try {
+      localStorage.setItem('vans-pricing-packages', JSON.stringify(updated));
+    } catch {}
+  }, [savedPackages]);
+
   // 패키지 요약 (내보내기용)
   const packageSummaries = useMemo(() => {
     return savedPackages.map((pkg) => ({
@@ -180,6 +195,17 @@ export default function EventTab({ onToast }) {
       summary: computePackageSummary(pkg),
     }));
   }, [savedPackages]);
+
+  // 저장된 패키지 필터링
+  const filteredSavedPackages = useMemo(() => {
+    if (!packageQuery.trim()) return savedPackages;
+    const q = packageQuery.replace(/\s+/g, '').toLowerCase();
+    return savedPackages.filter((pkg) => {
+      if (pkg.name?.replace(/\s+/g, '').toLowerCase().includes(q)) return true;
+      if (pkg.items?.some((item) => item.procedureName?.replace(/\s+/g, '').toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [savedPackages, packageQuery]);
 
   // 작업 중 패키지 요약 통계
   const workingStats = useMemo(() => {
@@ -341,8 +367,27 @@ export default function EventTab({ onToast }) {
             </div>
           </div>
 
+          {savedPackages.length > 3 && (
+            <div className="mb-3">
+              <input
+                type="text"
+                value={packageQuery}
+                onChange={(e) => setPackageQuery(e.target.value)}
+                placeholder="패키지명 또는 시술명 검색..."
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm
+                           focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              {packageQuery && (
+                <span className="text-xs text-gray-400 mt-1 block">
+                  {filteredSavedPackages.length}/{savedPackages.length}개 표시
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
-            {savedPackages.map((pkg) => {
+            {filteredSavedPackages.map((pkg) => {
+              const idx = savedPackages.indexOf(pkg);
               const s = computePackageSummary(pkg);
               return (
                 <div
@@ -368,12 +413,32 @@ export default function EventTab({ onToast }) {
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => deleteSavedPackage(pkg.id)}
-                    className="text-xs px-2 py-1 text-red-500 hover:bg-red-50 rounded transition-colors shrink-0 ml-2"
-                  >
-                    삭제
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    {idx > 0 && (
+                      <button
+                        onClick={() => moveSavedPackage(idx, -1)}
+                        className="text-xs px-1.5 py-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                        title="위로 이동"
+                      >
+                        ↑
+                      </button>
+                    )}
+                    {idx < savedPackages.length - 1 && (
+                      <button
+                        onClick={() => moveSavedPackage(idx, 1)}
+                        className="text-xs px-1.5 py-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                        title="아래로 이동"
+                      >
+                        ↓
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteSavedPackage(pkg.id)}
+                      className="text-xs px-2 py-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                    >
+                      삭제
+                    </button>
+                  </div>
                 </div>
               );
             })}

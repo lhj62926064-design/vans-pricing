@@ -2,25 +2,84 @@
  * BranchImport.jsx - CSV 파일 업로드 + 미리보기 + 저장
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { parseCSVFile } from '../../utils/csvParser';
-import { saveBranchData, hasBranch } from '../../utils/branchStorage';
+import { saveBranchData, hasBranch, loadManifest, loadBranchData } from '../../utils/branchStorage';
 import { formatNumber } from '../../utils/pricing';
 
-const BRANCH_NAMES = [
+const DEFAULT_BRANCH_NAMES = [
   '대전', '구월', '여의도', '동대문', '제주',
   '수원망포', '원주', '해운대', '김해', '부천', '천호',
 ];
 
 export default function BranchImport({ onImported, onToast }) {
+  // 동적 지점 목록: 기본 + 이미 가져온 지점명 병합
+  const BRANCH_NAMES = useMemo(() => {
+    const manifest = loadManifest();
+    const existing = manifest.branches.map((b) => b.name);
+    const merged = [...DEFAULT_BRANCH_NAMES];
+    for (const name of existing) {
+      if (!merged.includes(name)) merged.push(name);
+    }
+    return merged;
+  }, []);
   const [branchName, setBranchName] = useState('');
   const [customName, setCustomName] = useState('');
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
   const fileRef = useRef(null);
 
   const effectiveName = branchName === '__custom__' ? customName.trim() : branchName;
   const alreadyExists = effectiveName ? hasBranch(effectiveName) : false;
+
+  const priceDiff = useMemo(() => {
+    if (!alreadyExists || !preview?.data?.length || !effectiveName) return null;
+    const oldData = loadBranchData(effectiveName);
+    if (!oldData.length) return null;
+
+    // Build maps by name (normalized)
+    const oldMap = new Map();
+    for (const item of oldData) {
+      oldMap.set(item.name.replace(/\s+/g, '').toLowerCase(), item);
+    }
+    const newMap = new Map();
+    for (const item of preview.data) {
+      newMap.set(item.name.replace(/\s+/g, '').toLowerCase(), item);
+    }
+
+    const changed = [];
+    const added = [];
+    const removed = [];
+
+    // Find changed and added
+    for (const item of preview.data) {
+      const key = item.name.replace(/\s+/g, '').toLowerCase();
+      const old = oldMap.get(key);
+      if (!old) {
+        added.push(item);
+      } else if (old.standardPrice !== item.standardPrice) {
+        changed.push({
+          name: item.name,
+          category: item.category,
+          oldPrice: old.standardPrice,
+          newPrice: item.standardPrice,
+          diff: item.standardPrice - old.standardPrice,
+        });
+      }
+    }
+
+    // Find removed
+    for (const item of oldData) {
+      const key = item.name.replace(/\s+/g, '').toLowerCase();
+      if (!newMap.has(key)) {
+        removed.push(item);
+      }
+    }
+
+    if (changed.length === 0 && added.length === 0 && removed.length === 0) return null;
+    return { changed, added, removed };
+  }, [alreadyExists, effectiveName, preview]);
 
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
@@ -138,6 +197,68 @@ export default function BranchImport({ onImported, onToast }) {
               </span>
             )}
           </div>
+
+          {priceDiff && (
+            <div className="px-4 py-2 bg-orange-50 border-b border-orange-200">
+              <button
+                onClick={() => setShowDiff(!showDiff)}
+                className="flex items-center gap-2 text-sm font-medium text-orange-700 w-full text-left"
+              >
+                <span className={`transition-transform text-xs ${showDiff ? 'rotate-90' : ''}`}>▶</span>
+                가격 변동 감지:
+                {priceDiff.changed.length > 0 && (
+                  <span className="text-orange-600">{priceDiff.changed.length}개 변경</span>
+                )}
+                {priceDiff.added.length > 0 && (
+                  <span className="text-green-600">{priceDiff.added.length}개 추가</span>
+                )}
+                {priceDiff.removed.length > 0 && (
+                  <span className="text-red-600">{priceDiff.removed.length}개 삭제</span>
+                )}
+              </button>
+
+              {showDiff && (
+                <div className="mt-2 max-h-48 overflow-y-auto">
+                  {priceDiff.changed.length > 0 && (
+                    <div className="mb-2">
+                      <div className="text-xs font-bold text-orange-700 mb-1">가격 변경</div>
+                      {priceDiff.changed.map((item, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs py-0.5">
+                          <span className="text-gray-600 min-w-0 truncate flex-1">{item.name}</span>
+                          <span className="text-gray-400 shrink-0">{formatNumber(item.oldPrice)}원</span>
+                          <span className="text-gray-400 shrink-0">→</span>
+                          <span className="font-bold text-orange-700 shrink-0">{formatNumber(item.newPrice)}원</span>
+                          <span className={`text-xs shrink-0 ${item.diff > 0 ? 'text-red-500' : 'text-blue-500'}`}>
+                            ({item.diff > 0 ? '+' : ''}{formatNumber(item.diff)})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {priceDiff.added.length > 0 && (
+                    <div className="mb-2">
+                      <div className="text-xs font-bold text-green-700 mb-1">새로 추가</div>
+                      {priceDiff.added.map((item, i) => (
+                        <div key={i} className="text-xs py-0.5 text-green-700">
+                          + {item.name} ({formatNumber(item.standardPrice)}원)
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {priceDiff.removed.length > 0 && (
+                    <div>
+                      <div className="text-xs font-bold text-red-700 mb-1">삭제됨</div>
+                      {priceDiff.removed.map((item, i) => (
+                        <div key={i} className="text-xs py-0.5 text-red-500">
+                          - {item.name} ({formatNumber(item.standardPrice)}원)
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="overflow-x-auto max-h-48 overflow-y-auto">
             <table className="w-full text-xs">

@@ -9,19 +9,38 @@
 const MANIFEST_KEY = 'vans-branch-manifest';
 const DATA_KEY_PREFIX = 'vans-branch-data-';
 
+// ── Memory Cache ──
+const _cache = new Map();
+let _manifestCache = null;
+
+export function invalidateCache(branchName) {
+  if (branchName) {
+    _cache.delete(branchName);
+  } else {
+    _cache.clear();
+  }
+  _manifestCache = null;
+}
+
 // ── Manifest ──
 
 export function loadManifest() {
+  if (_manifestCache) return _manifestCache;
   try {
     const raw = localStorage.getItem(MANIFEST_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      _manifestCache = JSON.parse(raw);
+      return _manifestCache;
+    }
   } catch (err) {
     console.error('manifest 로드 실패:', err);
   }
-  return { branches: [], activeBranch: null };
+  _manifestCache = { branches: [], activeBranch: null };
+  return _manifestCache;
 }
 
 function saveManifest(manifest) {
+  _manifestCache = manifest;
   try {
     localStorage.setItem(MANIFEST_KEY, JSON.stringify(manifest));
   } catch (err) {
@@ -44,6 +63,7 @@ export function setActiveBranch(branchName) {
 // ── Branch Data CRUD ──
 
 export function saveBranchData(branchName, procedures) {
+  invalidateCache(branchName);
   const key = DATA_KEY_PREFIX + branchName;
   try {
     localStorage.setItem(key, JSON.stringify(procedures));
@@ -76,9 +96,12 @@ export function saveBranchData(branchName, procedures) {
 
 export function loadBranchData(branchName) {
   if (!branchName) return [];
+  if (_cache.has(branchName)) return _cache.get(branchName);
   try {
     const raw = localStorage.getItem(DATA_KEY_PREFIX + branchName);
-    return raw ? JSON.parse(raw) : [];
+    const data = raw ? JSON.parse(raw) : [];
+    _cache.set(branchName, data);
+    return data;
   } catch (err) {
     console.error(`지점 데이터 로드 실패 (${branchName}):`, err);
     return [];
@@ -86,6 +109,7 @@ export function loadBranchData(branchName) {
 }
 
 export function deleteBranchData(branchName) {
+  invalidateCache(branchName);
   try {
     localStorage.removeItem(DATA_KEY_PREFIX + branchName);
   } catch {}
@@ -99,6 +123,7 @@ export function deleteBranchData(branchName) {
 }
 
 export function deleteAllBranchData() {
+  invalidateCache();
   const manifest = loadManifest();
   for (const branch of manifest.branches) {
     try {

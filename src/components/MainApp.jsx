@@ -1,7 +1,7 @@
 /**
  * MainApp.jsx - 최상위 앱 셸
  *
- * 2탭 구조: 수가 책정 | 한정 이벤트
+ * 3탭 구조: 수가 책정 | 한정 이벤트 | 지점 수가
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -17,6 +17,7 @@ export default function MainApp() {
   const [mainTab, setMainTab] = useState('pricing');
   const [roundUnit, setRoundUnit] = useState(() => loadRoundUnit());
   const [toast, setToast] = useState(null);
+  const [undoAction, setUndoAction] = useState(null);
 
   // 기존 데이터 로드 (PricingTab에 전달)
   const [initialPricingData] = useState(() => autoLoad());
@@ -26,8 +27,15 @@ export default function MainApp() {
     saveRoundUnit(roundUnit);
   }, [roundUnit]);
 
-  const showToast = useCallback((msg) => setToast(msg), []);
-  const clearToast = useCallback(() => setToast(null), []);
+  const showToast = useCallback((msg, undo) => {
+    setToast(msg);
+    setUndoAction(undo ? () => undo : null);
+  }, []);
+
+  const clearToast = useCallback(() => {
+    setToast(null);
+    setUndoAction(null);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -55,7 +63,7 @@ export default function MainApp() {
         </div>
       </main>
 
-      <Toast message={toast} onClose={clearToast} />
+      <Toast message={toast} onClose={clearToast} onUndo={undoAction} />
     </div>
   );
 }

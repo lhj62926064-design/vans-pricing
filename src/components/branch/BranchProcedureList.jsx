@@ -1,6 +1,6 @@
 /**
  * BranchProcedureList.jsx - 검색/필터 가능한 시술 테이블
- * 50행씩 페이지네이션, 카테고리 필터, 이름 검색
+ * 50행씩 페이지네이션, 카테고리 필터, 이름 검색, 컬럼 정렬
  */
 
 import { useState, useMemo } from 'react';
@@ -13,20 +13,53 @@ export default function BranchProcedureList({ data, branchName, onToast }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [sortKey, setSortKey] = useState(null); // 'name' | 'price' | 'category' | null
+  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
 
   const categories = useMemo(() => extractCategories(data), [data]);
 
   const filtered = useMemo(() => {
     const q = query.replace(/\s+/g, '').toLowerCase();
-    return data.filter((item) => {
+    let result = data.filter((item) => {
       if (category && item.category !== category) return false;
       if (q && !item.name.replace(/\s+/g, '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [data, query, category]);
+
+    // 정렬
+    if (sortKey) {
+      result = [...result].sort((a, b) => {
+        let cmp = 0;
+        if (sortKey === 'name') {
+          cmp = a.name.localeCompare(b.name, 'ko');
+        } else if (sortKey === 'price') {
+          cmp = (a.standardPrice || 0) - (b.standardPrice || 0);
+        } else if (sortKey === 'category') {
+          cmp = (a.category || '').localeCompare(b.category || '', 'ko');
+        }
+        return sortDir === 'desc' ? -cmp : cmp;
+      });
+    }
+
+    return result;
+  }, [data, query, category, sortKey, sortDir]);
 
   const visible = filtered.slice(0, visibleCount);
   const hasMore = visibleCount < filtered.length;
+
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const sortIndicator = (key) => {
+    if (sortKey !== key) return <span className="text-gray-300 ml-0.5">↕</span>;
+    return <span className="text-teal-600 ml-0.5">{sortDir === 'asc' ? '↑' : '↓'}</span>;
+  };
 
   const handleCopyName = (name) => {
     navigator.clipboard?.writeText(name).then(() => {
@@ -77,9 +110,24 @@ export default function BranchProcedureList({ data, branchName, onToast }) {
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
                 <th className="px-3 py-2 text-left text-gray-600 font-medium w-16">No.</th>
-                <th className="px-3 py-2 text-left text-gray-600 font-medium">대분류</th>
-                <th className="px-3 py-2 text-left text-gray-600 font-medium">진료항목명</th>
-                <th className="px-3 py-2 text-right text-gray-600 font-medium w-28">표준가격</th>
+                <th
+                  className="px-3 py-2 text-left text-gray-600 font-medium cursor-pointer hover:text-teal-700 select-none"
+                  onClick={() => handleSort('category')}
+                >
+                  대분류{sortIndicator('category')}
+                </th>
+                <th
+                  className="px-3 py-2 text-left text-gray-600 font-medium cursor-pointer hover:text-teal-700 select-none"
+                  onClick={() => handleSort('name')}
+                >
+                  진료항목명{sortIndicator('name')}
+                </th>
+                <th
+                  className="px-3 py-2 text-right text-gray-600 font-medium w-28 cursor-pointer hover:text-teal-700 select-none"
+                  onClick={() => handleSort('price')}
+                >
+                  표준가격{sortIndicator('price')}
+                </th>
                 <th className="px-3 py-2 text-center text-gray-600 font-medium w-12">과세</th>
               </tr>
             </thead>

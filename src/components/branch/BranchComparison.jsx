@@ -2,11 +2,13 @@
  * BranchComparison.jsx - 지점간 가격 비교 (개선)
  *
  * 기능:
- *   - 실시간 자동완성 검색 (한 글자부터)
+ *   - 실시간 자동완성 검색 (한 글자부터, 디바운스 적용)
  *   - 대분류 표시
  *   - 지점 다중선택 필터
  *   - 여러 시술 동시 비교 (테이블)
- *   - 최저가 하이라이트
+ *   - 최저가 하이라이트 + 가격 차이 표시
+ *   - 키보드 네비게이션 (↑↓ + Enter)
+ *   - 비교 결과 복사/내보내기
  */
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -17,14 +19,16 @@ import {
 } from '../../utils/branchStorage';
 import { formatNumber } from '../../utils/pricing';
 
-export default function BranchComparison() {
+export default function BranchComparison({ onToast }) {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedProcedures, setSelectedProcedures] = useState([]); // [{name, category}]
   const [enabledBranches, setEnabledBranches] = useState([]); // 선택된 지점
+  const [highlightIndex, setHighlightIndex] = useState(-1); // 키보드 네비게이션
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
+  const debounceRef = useRef(null);
 
   // 전체 지점 목록
   const allBranches = useMemo(() => {
@@ -48,13 +52,17 @@ export default function BranchComparison() {
     );
   }, [selectedProcedures, enabledBranches]);
 
-  // 검색 자동완성
+  // 검색 자동완성 (디바운스 150ms)
   const handleQueryChange = useCallback((value) => {
     setQuery(value);
+    setHighlightIndex(-1);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     if (value.trim().length >= 1) {
-      const results = searchProceduresAcrossAllBranches(value.trim(), 30);
-      setSuggestions(results);
-      setShowDropdown(true);
+      debounceRef.current = setTimeout(() => {
+        const results = searchProceduresAcrossAllBranches(value.trim(), 30);
+        setSuggestions(results);
+        setShowDropdown(true);
+      }, 150);
     } else {
       setSuggestions([]);
       setShowDropdown(false);
@@ -70,6 +78,7 @@ export default function BranchComparison() {
     setQuery('');
     setSuggestions([]);
     setShowDropdown(false);
+    setHighlightIndex(-1);
     inputRef.current?.focus();
   }, []);
 
@@ -94,6 +103,49 @@ export default function BranchComparison() {
     );
   }, [allBranches]);
 
+  // 키보드 네비게이션
+  const handleKeyDown = useCallback((e) => {
+    if (!showDropdown || suggestions.length === 0) {
+      if (e.key === 'Escape') {
+        setShowDropdown(false);
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightIndex((prev) => {
+          const next = prev < suggestions.length - 1 ? prev + 1 : 0;
+          const el = dropdownRef.current?.children[next];
+          el?.scrollIntoView({ block: 'nearest' });
+          return next;
+        });
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightIndex((prev) => {
+          const next = prev > 0 ? prev - 1 : suggestions.length - 1;
+          const el = dropdownRef.current?.children[next];
+          el?.scrollIntoView({ block: 'nearest' });
+          return next;
+        });
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (highlightIndex >= 0 && highlightIndex < suggestions.length) {
+          const s = suggestions[highlightIndex];
+          const alreadySelected = selectedProcedures.some((p) => p.name === s.name);
+          if (!alreadySelected) handleSelectProcedure(s);
+        }
+        break;
+      case 'Escape':
+        setShowDropdown(false);
+        setHighlightIndex(-1);
+        break;
+    }
+  }, [showDropdown, suggestions, highlightIndex, selectedProcedures, handleSelectProcedure]);
+
   // 드롭다운 바깥 클릭 시 닫기
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -104,17 +156,38 @@ export default function BranchComparison() {
         !inputRef.current.contains(e.target)
       ) {
         setShowDropdown(false);
+        setHighlightIndex(-1);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 비교 테이블에서 행별 최저가 계산
-  const getRowMin = (prices) => {
+  // 비교 테이블에서 행별 최저가/최고가 계산
+  const getRowStats = (prices) => {
     const values = Object.values(prices).filter((v) => v > 0);
-    return values.length > 0 ? Math.min(...values) : 0;
+    if (values.length === 0) return { min: 0, max: 0 };
+    return { min: Math.min(...values), max: Math.max(...values) };
   };
+
+  // 비교 결과 복사
+  const handleCopyComparison = useCallback(() => {
+    if (comparisonData.length === 0) return;
+    const header = ['시술명', ...enabledBranches, '최저가', '최고가', '차이'].join('\t');
+    const rows = comparisonData.map((row) => {
+      const { min, max } = getRowStats(row.prices);
+      const diff = max - min;
+      const cols = enabledBranches.map((b) => {
+        const p = row.prices[b];
+        return p > 0 ? formatNumber(p) : '-';
+      });
+      return [row.name, ...cols, formatNumber(min), formatNumber(max), formatNumber(diff)].join('\t');
+    });
+    const text = [header, ...rows].join('\n');
+    navigator.clipboard?.writeText(text).then(() => {
+      onToast?.('비교 결과가 클립보드에 복사되었습니다');
+    });
+  }, [comparisonData, enabledBranches, onToast]);
 
   return (
     <div className="space-y-4">
@@ -126,7 +199,8 @@ export default function BranchComparison() {
           value={query}
           onChange={(e) => handleQueryChange(e.target.value)}
           onFocus={() => { if (suggestions.length > 0) setShowDropdown(true); }}
-          placeholder="비교할 시술명 검색 (한 글자부터 검색)"
+          onKeyDown={handleKeyDown}
+          placeholder="비교할 시술명 검색 (↑↓ 선택, Enter 추가)"
           className="w-full px-3 py-2.5 border border-teal-300 rounded-lg text-sm
                      focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white"
         />
@@ -143,6 +217,7 @@ export default function BranchComparison() {
               const avgPrice = s.branches.length > 0
                 ? Math.round(s.branches.reduce((sum, b) => sum + b.price, 0) / s.branches.length)
                 : 0;
+              const isHighlighted = i === highlightIndex;
               return (
                 <button
                   key={`${s.name}-${i}`}
@@ -152,7 +227,9 @@ export default function BranchComparison() {
                     border-b border-gray-50 last:border-b-0 transition-colors
                     ${alreadySelected
                       ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
-                      : 'hover:bg-teal-50 cursor-pointer'
+                      : isHighlighted
+                        ? 'bg-teal-100 cursor-pointer'
+                        : 'hover:bg-teal-50 cursor-pointer'
                     }`}
                 >
                   <span className="text-xs text-gray-400 shrink-0 w-20 truncate">
@@ -234,7 +311,21 @@ export default function BranchComparison() {
       {/* 비교 테이블 */}
       {comparisonData.length > 0 && enabledBranches.length > 0 && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* 복사 버튼 */}
+          <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
+            <span className="text-xs text-gray-500 font-medium">
+              {comparisonData.length}개 시술 × {enabledBranches.length}개 지점
+            </span>
+            <button
+              onClick={handleCopyComparison}
+              className="text-xs px-3 py-1 bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors font-medium"
+            >
+              엑셀 복사
+            </button>
+          </div>
+
+          {/* 데스크탑 테이블 */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-gray-50">
                 <tr>
@@ -246,11 +337,15 @@ export default function BranchComparison() {
                       {b}
                     </th>
                   ))}
+                  <th className="px-3 py-2.5 text-right text-gray-600 font-bold min-w-[80px] bg-orange-50">
+                    차이
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {comparisonData.map((row, i) => {
-                  const minPrice = getRowMin(row.prices);
+                  const { min, max } = getRowStats(row.prices);
+                  const diff = max - min;
                   return (
                     <tr key={row.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                       <td className={`px-3 py-2.5 font-medium text-gray-800 sticky left-0 z-10
@@ -262,7 +357,8 @@ export default function BranchComparison() {
                       </td>
                       {enabledBranches.map((b) => {
                         const price = row.prices[b];
-                        const isMin = price > 0 && price === minPrice;
+                        const isMin = price > 0 && price === min;
+                        const isMax = price > 0 && price === max && min !== max;
                         const hasPrice = price !== undefined && price > 0;
                         return (
                           <td
@@ -270,9 +366,11 @@ export default function BranchComparison() {
                             className={`px-3 py-2.5 text-right font-medium
                               ${isMin
                                 ? 'bg-teal-50 text-teal-700 font-bold'
-                                : hasPrice
-                                  ? 'text-gray-800'
-                                  : 'text-gray-300'
+                                : isMax
+                                  ? 'bg-red-50 text-red-600'
+                                  : hasPrice
+                                    ? 'text-gray-800'
+                                    : 'text-gray-300'
                               }`}
                           >
                             {hasPrice ? (
@@ -288,11 +386,47 @@ export default function BranchComparison() {
                           </td>
                         );
                       })}
+                      <td className="px-3 py-2.5 text-right font-bold bg-orange-50 text-orange-700">
+                        {diff > 0 ? `${formatNumber(diff)}원` : '-'}
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* 모바일: 카드 뷰 */}
+          <div className="sm:hidden">
+            {comparisonData.map((row) => {
+              const { min, max } = getRowStats(row.prices);
+              const diff = max - min;
+              return (
+                <div key={`mobile-${row.name}`} className="p-3 border-b border-gray-100 last:border-b-0">
+                  <div className="font-bold text-sm text-gray-800">{row.name}</div>
+                  {row.category && <div className="text-[10px] text-gray-400">{row.category}</div>}
+                  <div className="mt-2 grid grid-cols-2 gap-1">
+                    {enabledBranches.map((b) => {
+                      const price = row.prices[b];
+                      const isMin = price > 0 && price === min;
+                      const hasPrice = price !== undefined && price > 0;
+                      return (
+                        <div key={b} className={`flex justify-between text-xs px-2 py-1 rounded
+                          ${isMin ? 'bg-teal-50 text-teal-700 font-bold' : 'text-gray-600'}`}>
+                          <span>{b}</span>
+                          <span>{hasPrice ? `${formatNumber(price)}원` : '-'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {diff > 0 && (
+                    <div className="mt-1 text-xs text-orange-600 font-bold text-right">
+                      차이: {formatNumber(diff)}원
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
