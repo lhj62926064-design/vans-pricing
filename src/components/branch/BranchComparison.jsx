@@ -52,7 +52,7 @@ export default function BranchComparison() {
   const handleQueryChange = useCallback((value) => {
     setQuery(value);
     if (value.trim().length >= 1) {
-      const results = searchProceduresAcrossAllBranches(value.trim(), 15);
+      const results = searchProceduresAcrossAllBranches(value.trim(), 30);
       setSuggestions(results);
       setShowDropdown(true);
     } else {
@@ -136,7 +136,7 @@ export default function BranchComparison() {
           <div
             ref={dropdownRef}
             className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200
-                       rounded-lg shadow-lg max-h-64 overflow-y-auto"
+                       rounded-lg shadow-lg max-h-96 overflow-y-auto"
           >
             {suggestions.map((s, i) => {
               const alreadySelected = selectedProcedures.some((p) => p.name === s.name);
@@ -174,6 +174,33 @@ export default function BranchComparison() {
         )}
       </div>
 
+      {/* 지점 필터 (항상 표시) */}
+      {allBranches.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="text-xs text-gray-500 shrink-0">지점 필터:</span>
+          <label className="inline-flex items-center gap-1 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={enabledBranches.length === allBranches.length}
+              onChange={toggleAllBranches}
+              className="rounded border-gray-300 text-teal-600 focus:ring-teal-400"
+            />
+            <span className="text-gray-600 font-medium">전체</span>
+          </label>
+          {allBranches.map((name) => (
+            <label key={name} className="inline-flex items-center gap-1 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enabledBranches.includes(name)}
+                onChange={() => toggleBranch(name)}
+                className="rounded border-gray-300 text-teal-600 focus:ring-teal-400"
+              />
+              <span className="text-gray-700">{name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
       {/* 선택된 시술 칩 */}
       {selectedProcedures.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -201,33 +228,6 @@ export default function BranchComparison() {
           >
             전체 삭제
           </button>
-        </div>
-      )}
-
-      {/* 지점 필터 */}
-      {allBranches.length > 0 && selectedProcedures.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <span className="text-xs text-gray-500 shrink-0">지점 필터:</span>
-          <label className="inline-flex items-center gap-1 text-xs cursor-pointer">
-            <input
-              type="checkbox"
-              checked={enabledBranches.length === allBranches.length}
-              onChange={toggleAllBranches}
-              className="rounded border-gray-300 text-teal-600 focus:ring-teal-400"
-            />
-            <span className="text-gray-600 font-medium">전체</span>
-          </label>
-          {allBranches.map((name) => (
-            <label key={name} className="inline-flex items-center gap-1 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={enabledBranches.includes(name)}
-                onChange={() => toggleBranch(name)}
-                className="rounded border-gray-300 text-teal-600 focus:ring-teal-400"
-              />
-              <span className="text-gray-700">{name}</span>
-            </label>
-          ))}
         </div>
       )}
 
