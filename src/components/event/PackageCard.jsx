@@ -467,7 +467,7 @@ export default function PackageCard({
                           value={item.individualPrice || ''}
                           onChange={(e) => handleItemPrice(idx, e.target.value)}
                           min="0"
-                          placeholder="정가"
+                          placeholder="정가(VAT별도)"
                           className={`w-24 px-2 py-1.5 border rounded text-xs text-right
                                      focus:outline-none focus:ring-1 focus:ring-indigo-300
                                      ${item.individualPrice > 0 ? 'border-gray-200' : 'border-orange-300 bg-orange-50'}`}

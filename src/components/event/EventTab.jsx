@@ -519,7 +519,7 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
           <div
             ref={cardAreaRef}
             className="space-y-3 overflow-y-auto overscroll-contain"
-            style={{ maxHeight: cardAreaHeight || 500, minHeight: 200 }}
+            style={{ height: cardAreaHeight || 500, minHeight: 200 }}
           >
             {packages.map((pkg, idx) => (
               <PackageCard
@@ -540,17 +540,17 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
 
           {/* 리사이즈 드래그 핸들 */}
           <div
-            className="resize-handle-y flex items-center justify-center py-1 -mx-4 sm:-mx-6 px-4 sm:px-6
-                       hover:bg-gray-100 transition-colors group border-t border-gray-100"
+            className="resize-handle-y flex items-center justify-center py-2.5 -mx-4 sm:-mx-6 px-4 sm:px-6
+                       hover:bg-indigo-50 transition-colors group border-t border-gray-200 cursor-row-resize"
             onMouseDown={handleResizeStart}
             title="드래그하여 높이 조절"
           >
             <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 bg-gray-300 rounded-full group-hover:bg-indigo-400 transition-colors" />
-              <span className="text-[10px] text-gray-400 group-hover:text-indigo-500 transition-colors select-none">
-                {cardAreaHeight > 0 ? `${Math.round(cardAreaHeight)}px` : '자동'}
+              <div className="w-10 h-1 bg-gray-300 rounded-full group-hover:bg-indigo-400 transition-colors" />
+              <span className="text-[10px] text-gray-400 group-hover:text-indigo-500 transition-colors select-none font-medium">
+                {cardAreaHeight > 0 ? `${Math.round(cardAreaHeight)}px` : '드래그로 높이 조절'}
               </span>
-              <div className="w-8 h-0.5 bg-gray-300 rounded-full group-hover:bg-indigo-400 transition-colors" />
+              <div className="w-10 h-1 bg-gray-300 rounded-full group-hover:bg-indigo-400 transition-colors" />
             </div>
             {cardAreaHeight > 0 && (
               <button
