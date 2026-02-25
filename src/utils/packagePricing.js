@@ -402,7 +402,9 @@ export function matchBranchPrices(packages, branchProcedures) {
       // 이미 가격 매칭된 경우 스킵 (ㄴ 파싱, 라이브러리)
       if (item.individualPrice > 0 && item.priceSource !== 'branch') return item;
 
-      const match = findBestBranchMatch(item.procedureName, branchProcedures);
+      // 시술명에서 가격 힌트 추출 (예: "온다 5만" → 50000)
+      const priceHint = extractPriceHint(item.procedureName);
+      const match = findBestBranchMatch(item.procedureName, branchProcedures, priceHint);
       if (match) {
         return {
           ...item,
@@ -424,10 +426,22 @@ function stripNumbers(str) {
 }
 
 /**
+ * 시술명에서 가격 힌트 추출
+ * "온다 5만 3회" → 50000, "바디온다 4만" → 40000, "슈링크 300" → 0 (숫자만은 무시)
+ */
+function extractPriceHint(name) {
+  if (!name) return 0;
+  // "5만" or "5.5만" 패턴
+  const manMatch = name.match(/([\d.]+)\s*만/);
+  if (manMatch) return Math.round(parseFloat(manMatch[1]) * 10000);
+  return 0;
+}
+
+/**
  * 지점 수가에서 최적 매칭 찾기
  * 우선순위: 정확 일치 > 정규화 일치 > 포함 > 숫자 제거 매칭 > 토큰 매칭
  */
-function findBestBranchMatch(name, procedures) {
+function findBestBranchMatch(name, procedures, priceHint = 0) {
   if (!name) return null;
   const normalized = name.replace(/\s+/g, '').toLowerCase();
 
@@ -439,35 +453,60 @@ function findBestBranchMatch(name, procedures) {
   match = procedures.find((p) => p.name.replace(/\s+/g, '').toLowerCase() === normalized);
   if (match) return match;
 
-  // 3. 포함 (양방향)
-  match = procedures.find((p) =>
+  // 3. 포함 (양방향) - 후보가 여러 개면 가격 힌트로 선택
+  const containsMatches = procedures.filter((p) =>
     p.name.replace(/\s+/g, '').toLowerCase().includes(normalized) ||
     normalized.includes(p.name.replace(/\s+/g, '').toLowerCase())
   );
-  if (match) return match;
+  if (containsMatches.length === 1) return containsMatches[0];
+  if (containsMatches.length > 1) {
+    if (priceHint > 0) {
+      containsMatches.sort((a, b) =>
+        Math.abs((a.standardPrice || 0) - priceHint) - Math.abs((b.standardPrice || 0) - priceHint)
+      );
+    }
+    return containsMatches[0];
+  }
 
   // 4. 숫자 제거 후 매칭 (슈링크300 → 슈링크, 인모드fx → 인모드)
   const strippedNorm = stripNumbers(normalized);
   if (strippedNorm.length >= 2) {
-    match = procedures.find((p) => {
+    const strippedMatches = procedures.filter((p) => {
       const pStripped = stripNumbers(p.name.replace(/\s+/g, '').toLowerCase());
       return pStripped === strippedNorm ||
         pStripped.includes(strippedNorm) ||
         strippedNorm.includes(pStripped);
     });
-    if (match) return match;
+    if (strippedMatches.length === 1) return strippedMatches[0];
+    if (strippedMatches.length > 1) {
+      if (priceHint > 0) {
+        strippedMatches.sort((a, b) =>
+          Math.abs((a.standardPrice || 0) - priceHint) - Math.abs((b.standardPrice || 0) - priceHint)
+        );
+      }
+      return strippedMatches[0];
+    }
   }
 
   // 5. 토큰 매칭 (모든 단어가 포함)
   const tokens = name.split(/\s+/).filter((t) => t.length > 1);
   if (tokens.length > 1) {
-    match = procedures.find((p) => {
+    const tokenMatches = procedures.filter((p) => {
       const pNorm = p.name.replace(/\s+/g, '').toLowerCase();
       return tokens.every((t) => pNorm.includes(t.toLowerCase()));
     });
+    if (tokenMatches.length === 1) return tokenMatches[0];
+    if (tokenMatches.length > 1) {
+      if (priceHint > 0) {
+        tokenMatches.sort((a, b) =>
+          Math.abs((a.standardPrice || 0) - priceHint) - Math.abs((b.standardPrice || 0) - priceHint)
+        );
+      }
+      return tokenMatches[0];
+    }
   }
 
-  return match || null;
+  return null;
 }
 
 /**

@@ -589,7 +589,7 @@ export default function PackageCard({
           <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
             <div className="flex items-center gap-3">
               <div className="flex-1">
-                <label className="block text-xs text-gray-500 mb-1">패키지 이벤트가</label>
+                <label className="block text-xs text-gray-500 mb-1">패키지 이벤트가 <span className="text-gray-400">(VAT 별도)</span></label>
                 <div className="flex items-center gap-1">
                   <input
                     type="number"
@@ -602,12 +602,20 @@ export default function PackageCard({
                   />
                   <span className="text-xs text-gray-500 shrink-0">원</span>
                 </div>
+                {pkg.packagePrice > 0 && (
+                  <div className="text-[10px] text-teal-600 mt-0.5">
+                    VAT 포함 {formatNumber(Math.round(Number(pkg.packagePrice) * 1.1))}원
+                  </div>
+                )}
               </div>
 
               {/* 요약 뱃지 */}
               {hasAllPrices && summary.totalRegularPrice > 0 && (
                 <div className="text-right shrink-0">
-                  <div className="text-xs text-gray-400">정가 {formatNumber(summary.totalRegularPrice)}원</div>
+                  <div className="text-xs text-gray-400">
+                    정가 {formatNumber(summary.totalRegularPrice)}원
+                    <span className="text-gray-300 ml-1">(VAT 포함 {formatNumber(Math.round(summary.totalRegularPrice * 1.1))}원)</span>
+                  </div>
                   {pkg.packagePrice > 0 && (
                     <div className={`text-sm font-bold ${savingsPositive ? 'text-green-600' : 'text-red-500'}`}>
                       {savingsPositive ? '-' : '+'}{formatNumber(Math.abs(summary.savingsAmount))}원

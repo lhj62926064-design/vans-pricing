@@ -48,8 +48,34 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
     } catch { return []; }
   });
 
-  // 파싱된 패키지 (작업 중)
-  const [packages, setPackages] = useState([]);
+  // 파싱된 패키지 (작업 중) - 임시저장 복원
+  const [packages, setPackages] = useState(() => {
+    try {
+      const draft = localStorage.getItem('vans-pricing-draft-packages');
+      return draft ? JSON.parse(draft) : [];
+    } catch { return []; }
+  });
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  // 임시저장 자동 저장 (디바운스 2초)
+  useEffect(() => {
+    if (packages.length === 0) {
+      try { localStorage.removeItem('vans-pricing-draft-packages'); } catch {}
+      return;
+    }
+    const timer = setTimeout(() => {
+      try { localStorage.setItem('vans-pricing-draft-packages', JSON.stringify(packages)); } catch {}
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [packages]);
+
+  // 임시저장 복원 알림 (최초 1회)
+  useEffect(() => {
+    if (!draftRestored && packages.length > 0) {
+      setDraftRestored(true);
+      onToast?.(`임시 저장된 패키지 ${packages.length}개를 불러왔습니다`);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 저장된 패키지
   const [savedPackages, setSavedPackages] = useState(() => {
@@ -213,6 +239,7 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
       console.error('패키지 저장 실패:', err);
     }
     setPackages([]);
+    try { localStorage.removeItem('vans-pricing-draft-packages'); } catch {}
     onToast?.(`${valid.length}개 패키지가 저장되었습니다`);
   }, [packages, savedPackages, onToast]);
 
@@ -308,44 +335,36 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
     if (packages.length === 0) return null;
     const withPrice = packages.filter((p) => p.packagePrice > 0);
     const total = withPrice.reduce((s, p) => s + Number(p.packagePrice), 0);
-    return { total: packages.length, priced: withPrice.length, totalPrice: total };
+    const totalVat = Math.round(total * 1.1);
+    return { total: packages.length, priced: withPrice.length, totalPrice: total, totalPriceVat: totalVat };
   }, [packages]);
 
   // ── 패키지 카드 영역 리사이즈 ──
   const [cardAreaHeight, setCardAreaHeight] = useState(() => {
     try {
       const saved = localStorage.getItem('vans-pricing-card-container-height');
-      return saved ? Number(saved) : 0; // 0 = auto (제한 없음)
+      return saved ? Number(saved) : 0; // 0 = auto (기본 500px)
     } catch { return 0; }
   });
-  const resizingRef = useRef(false);
-  const resizeStartY = useRef(0);
-  const resizeStartH = useRef(0);
   const cardAreaRef = useRef(null);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
-    resizingRef.current = true;
-    resizeStartY.current = e.clientY;
-    resizeStartH.current = cardAreaHeight || (cardAreaRef.current?.scrollHeight || 400);
+    const startY = e.clientY;
+    const startH = cardAreaRef.current?.offsetHeight || 500;
 
     const handleMove = (ev) => {
-      if (!resizingRef.current) return;
-      const delta = ev.clientY - resizeStartY.current;
-      const newH = Math.max(200, Math.min(window.innerHeight - 200, resizeStartH.current + delta));
+      const newH = Math.max(200, Math.min(window.innerHeight - 200, startH + (ev.clientY - startY)));
       setCardAreaHeight(newH);
     };
 
     const handleUp = () => {
-      resizingRef.current = false;
       document.removeEventListener('mousemove', handleMove);
       document.removeEventListener('mouseup', handleUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       setCardAreaHeight((h) => {
-        if (h > 0) {
-          try { localStorage.setItem('vans-pricing-card-container-height', String(h)); } catch {}
-        }
+        try { localStorage.setItem('vans-pricing-card-container-height', String(h)); } catch {}
         return h;
       });
     };
@@ -354,7 +373,7 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', handleMove);
     document.addEventListener('mouseup', handleUp);
-  }, [cardAreaHeight]);
+  }, []);
 
   const resetCardAreaHeight = useCallback(() => {
     setCardAreaHeight(0);
@@ -469,6 +488,7 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
                   <>
                     {' '} | 가격 설정 <span className="font-bold text-indigo-600">{workingStats.priced}개</span>
                     {' '} | 합계 <span className="font-bold text-indigo-600">{formatNumber(workingStats.totalPrice)}원</span>
+                    <span className="text-gray-400 ml-1">(VAT 포함 {formatNumber(workingStats.totalPriceVat)}원)</span>
                   </>
                 )}
               </div>
@@ -499,7 +519,7 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
           <div
             ref={cardAreaRef}
             className="space-y-3 overflow-y-auto overscroll-contain"
-            style={cardAreaHeight > 0 ? { maxHeight: cardAreaHeight, minHeight: 200 } : undefined}
+            style={{ maxHeight: cardAreaHeight || 500, minHeight: 200 }}
           >
             {packages.map((pkg, idx) => (
               <PackageCard
@@ -552,10 +572,21 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
               + 패키지 추가
             </button>
             <button
-              onClick={() => setPackages([])}
+              onClick={() => { setPackages([]); try { localStorage.removeItem('vans-pricing-draft-packages'); } catch {} }}
               className="px-3 py-2 text-xs text-gray-500 hover:bg-gray-100 rounded transition-colors"
             >
               초기화
+            </button>
+            <button
+              onClick={() => {
+                try {
+                  localStorage.setItem('vans-pricing-draft-packages', JSON.stringify(packages));
+                  onToast?.('임시 저장되었습니다');
+                } catch {}
+              }}
+              className="px-3 py-2 text-xs text-amber-600 hover:bg-amber-50 rounded transition-colors font-medium"
+            >
+              💾 임시저장
             </button>
             <div className="flex-1" />
             <button
