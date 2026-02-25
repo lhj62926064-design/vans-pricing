@@ -55,7 +55,7 @@ export default function MainApp() {
             />
           )}
           {mainTab === 'event' && (
-            <EventTab onToast={showToast} />
+            <EventTab onToast={showToast} roundUnit={roundUnit} />
           )}
           {mainTab === 'branch' && (
             <BranchTab onToast={showToast} />

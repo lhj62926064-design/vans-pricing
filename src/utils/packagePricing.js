@@ -417,8 +417,15 @@ export function matchBranchPrices(packages, branchProcedures) {
 }
 
 /**
+ * 문자열에서 숫자 제거 (슈링크300 → 슈링크, 인모드fx → 인모드fx)
+ */
+function stripNumbers(str) {
+  return str.replace(/\d+/g, '').trim();
+}
+
+/**
  * 지점 수가에서 최적 매칭 찾기
- * 우선순위: 정확 일치 > 정규화 일치 > 포함 > 토큰 매칭
+ * 우선순위: 정확 일치 > 정규화 일치 > 포함 > 숫자 제거 매칭 > 토큰 매칭
  */
 function findBestBranchMatch(name, procedures) {
   if (!name) return null;
@@ -439,7 +446,19 @@ function findBestBranchMatch(name, procedures) {
   );
   if (match) return match;
 
-  // 4. 토큰 매칭 (모든 단어가 포함)
+  // 4. 숫자 제거 후 매칭 (슈링크300 → 슈링크, 인모드fx → 인모드)
+  const strippedNorm = stripNumbers(normalized);
+  if (strippedNorm.length >= 2) {
+    match = procedures.find((p) => {
+      const pStripped = stripNumbers(p.name.replace(/\s+/g, '').toLowerCase());
+      return pStripped === strippedNorm ||
+        pStripped.includes(strippedNorm) ||
+        strippedNorm.includes(pStripped);
+    });
+    if (match) return match;
+  }
+
+  // 5. 토큰 매칭 (모든 단어가 포함)
   const tokens = name.split(/\s+/).filter((t) => t.length > 1);
   if (tokens.length > 1) {
     match = procedures.find((p) => {
@@ -449,6 +468,44 @@ function findBestBranchMatch(name, procedures) {
   }
 
   return match || null;
+}
+
+/**
+ * 유사 수가표 항목 검색 (추천용)
+ * 정확 매칭이 안 된 시술에 대해 유사 항목 1~3개 반환
+ */
+export function findSimilarBranchItems(name, procedures, limit = 3) {
+  if (!name || !procedures.length) return [];
+  const normalized = name.replace(/\s+/g, '').toLowerCase();
+  if (normalized.length < 1) return [];
+
+  const scored = procedures.map((p) => {
+    const pNorm = p.name.replace(/\s+/g, '').toLowerCase();
+    let score = 0;
+
+    // 포함 관계
+    if (pNorm.includes(normalized) || normalized.includes(pNorm)) score += 10;
+
+    // 숫자 제거 후 포함
+    const strippedA = stripNumbers(normalized);
+    const strippedB = stripNumbers(pNorm);
+    if (strippedA.length >= 2 && strippedB.length >= 2) {
+      if (strippedB.includes(strippedA) || strippedA.includes(strippedB)) score += 7;
+    }
+
+    // 공통 문자 비율
+    const common = [...new Set(normalized)].filter((c) => pNorm.includes(c)).length;
+    const maxLen = Math.max(normalized.length, pNorm.length);
+    if (maxLen > 0) score += (common / maxLen) * 5;
+
+    return { procedure: p, score };
+  });
+
+  return scored
+    .filter((s) => s.score > 2)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => s.procedure);
 }
 
 /**
@@ -462,6 +519,44 @@ export function calcPackagePriceFromDiscount(pkg, targetDiscountPercent, roundUn
   if (totalRegular <= 0) return 0;
   const discounted = totalRegular * (1 - targetDiscountPercent / 100);
   return roundPrice(discounted, roundUnit);
+}
+
+/**
+ * 개별 시술 할인율로 패키지가 계산
+ * 각 시술의 discountRate(0~100)을 적용하여 합산
+ */
+export function calcPackagePriceFromItemDiscounts(pkg, roundUnit = 10000) {
+  if (!pkg || !pkg.items || pkg.items.length === 0) return 0;
+
+  const raw = pkg.items.reduce((sum, item) => {
+    const price = (Number(item.individualPrice) || 0) * (Number(item.quantity) || 1);
+    const rate = Number(item.discountRate) || 0;
+    return sum + price * (1 - rate / 100);
+  }, 0);
+
+  return roundPrice(raw, roundUnit);
+}
+
+/**
+ * 패키지가 → 개별 시술 할인율 역산 (균등 비율)
+ * 패키지가를 수동 입력했을 때 각 시술의 할인율을 비례 역산
+ */
+export function reverseCalcItemDiscounts(pkg) {
+  if (!pkg || !pkg.items || pkg.items.length === 0) return [];
+
+  const totalRegular = pkg.items.reduce(
+    (sum, item) => sum + (Number(item.individualPrice) || 0) * (Number(item.quantity) || 1),
+    0,
+  );
+  const packagePrice = Number(pkg.packagePrice) || 0;
+
+  if (totalRegular <= 0 || packagePrice <= 0) {
+    return pkg.items.map(() => 0);
+  }
+
+  // 균등 할인율 (전체 기준)
+  const overallDiscount = ((totalRegular - packagePrice) / totalRegular) * 100;
+  return pkg.items.map(() => Math.round(overallDiscount * 10) / 10);
 }
 
 /**

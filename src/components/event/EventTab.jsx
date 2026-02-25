@@ -5,7 +5,15 @@
  *   1. 텍스트 붙여넣기 (GPT처럼) → 자동 파싱
  *   2. 시술 라이브러리에서 정가 자동 매칭
  *   3. 목표 할인율 설정 → 패키지가 자동 계산 (또는 직접 입력)
- *   4. 카톡/엑셀 내보내기
+ *   4. 개별 시술 할인율 조절 가능
+ *   5. 카톡/엑셀 내보내기
+ *
+ * 추가 기능:
+ *   - 빈 패키지 추가 버튼
+ *   - 작업 중 패키지 순서 변경 (↑↓)
+ *   - 반올림 단위 연동 (Header)
+ *   - 목표 할인율 적용 피드백
+ *   - 최근 사용 시술 추천
  */
 
 import { useState, useCallback, useMemo } from 'react';
@@ -19,7 +27,7 @@ import { computePackageSummary, calcPackagePriceFromDiscount } from '../../utils
 import { formatNumber } from '../../utils/pricing';
 import { getActiveBranch, setActiveBranch, loadBranchData } from '../../utils/branchStorage';
 
-export default function EventTab({ onToast }) {
+export default function EventTab({ onToast, roundUnit = 10000 }) {
   // 지점 수가 연동
   const [activeBranch, setActiveBranchState] = useState(() => getActiveBranch());
   const branchProcedures = useMemo(() => {
@@ -60,6 +68,9 @@ export default function EventTab({ onToast }) {
   // 저장된 패키지 검색 쿼리
   const [packageQuery, setPackageQuery] = useState('');
 
+  // 할인율 적용 피드백
+  const [discountFeedback, setDiscountFeedback] = useState(null);
+
   // ── 시술 라이브러리 관리 ──
   const saveProcedures = useCallback((updated) => {
     setProcedures(updated);
@@ -91,9 +102,20 @@ export default function EventTab({ onToast }) {
       onToast?.('파싱할 패키지가 없습니다');
       return;
     }
-    setPackages(parsed);
+    setPackages((prev) => [...prev, ...parsed]);
     onToast?.(`${parsed.length}개 패키지가 파싱되었습니다`);
   }, [onToast]);
+
+  // ── 빈 패키지 추가 ──
+  const addEmptyPackage = useCallback(() => {
+    const newPkg = {
+      id: Date.now() + Math.random(),
+      name: '',
+      packagePrice: 0,
+      items: [{ procedureName: '', quantity: 1, individualPrice: 0, priceSource: 'manual' }],
+    };
+    setPackages((prev) => [...prev, newPkg]);
+  }, []);
 
   // ── 개별 패키지 수정 ──
   const updatePackage = useCallback((idx, updated) => {
@@ -113,21 +135,62 @@ export default function EventTab({ onToast }) {
     onToast?.('패키지가 복제되었습니다');
   }, [onToast]);
 
-  // ── 목표 할인율로 전체 자동 계산 ──
+  // ── 작업 중 패키지 순서 변경 ──
+  const movePackage = useCallback((index, direction) => {
+    const newIndex = index + direction;
+    setPackages((prev) => {
+      if (newIndex < 0 || newIndex >= prev.length) return prev;
+      const updated = [...prev];
+      [updated[index], updated[newIndex]] = [updated[newIndex], updated[index]];
+      return updated;
+    });
+  }, []);
+
+  // ── 목표 할인율로 전체 자동 계산 (피드백 포함) ──
   const applyTargetDiscount = useCallback(() => {
     const discount = Number(targetDiscount) || 0;
     if (discount <= 0 || discount >= 100) {
       onToast?.('할인율은 1~99% 사이로 입력하세요');
       return;
     }
-    setPackages((prev) =>
-      prev.map((pkg) => {
-        const newPrice = calcPackagePriceFromDiscount(pkg, discount, 10000);
-        return newPrice > 0 ? { ...pkg, packagePrice: newPrice } : pkg;
-      }),
-    );
-    onToast?.(`전체 패키지에 ${discount}% 할인율이 적용되었습니다`);
-  }, [targetDiscount, onToast]);
+
+    // 변경 전 상태 기록
+    const beforePrices = packages.map((p) => Number(p.packagePrice) || 0);
+    let changedCount = 0;
+    let totalBefore = 0;
+    let totalAfter = 0;
+
+    const updatedPackages = packages.map((pkg, idx) => {
+      const newPrice = calcPackagePriceFromDiscount(pkg, discount, roundUnit);
+      if (newPrice > 0) {
+        totalBefore += beforePrices[idx];
+        totalAfter += newPrice;
+        if (newPrice !== beforePrices[idx]) changedCount++;
+        return { ...pkg, packagePrice: newPrice };
+      }
+      return pkg;
+    });
+
+    setPackages(updatedPackages);
+
+    // 피드백 생성
+    if (changedCount > 0) {
+      const diff = totalBefore - totalAfter;
+      setDiscountFeedback({
+        discount,
+        changedCount,
+        totalCount: packages.length,
+        totalBefore,
+        totalAfter,
+        diff,
+        roundUnit,
+      });
+      // 5초 후 자동 숨김
+      setTimeout(() => setDiscountFeedback(null), 5000);
+    }
+
+    onToast?.(`전체 패키지에 ${discount}% 할인율이 적용되었습니다 (반올림: ${formatNumber(roundUnit)}원 단위)`);
+  }, [targetDiscount, packages, roundUnit, onToast]);
 
   // ── 전체 저장 ──
   const saveAllPackages = useCallback(() => {
@@ -186,7 +249,7 @@ export default function EventTab({ onToast }) {
     onToast?.('저장된 패키지가 모두 삭제되었습니다');
   }, [onToast]);
 
-  // ── 패키지 순서 변경 ──
+  // ── 저장된 패키지 순서 변경 ──
   const moveSavedPackage = useCallback((index, direction) => {
     const newIndex = index + direction;
     if (newIndex < 0 || newIndex >= savedPackages.length) return;
@@ -293,14 +356,26 @@ export default function EventTab({ onToast }) {
           )}
         </div>
 
-        {/* 벌크 텍스트 입력 */}
-        {packages.length === 0 && (
-          <BulkPackageInput
-            procedures={procedures}
-            branchProcedures={branchProcedures}
-            onParsed={handleParsed}
-          />
-        )}
+        {/* 벌크 텍스트 입력 + 새 패키지 버튼 */}
+        <BulkPackageInput
+          procedures={procedures}
+          branchProcedures={branchProcedures}
+          onParsed={handleParsed}
+        />
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            onClick={addEmptyPackage}
+            className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200
+                       rounded-lg hover:bg-indigo-100 transition-colors"
+          >
+            + 새 패키지
+          </button>
+          {packages.length > 0 && (
+            <span className="text-xs text-gray-400">
+              작업 중 {packages.length}개
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 파싱 결과: 패키지 카드들 */}
@@ -330,6 +405,11 @@ export default function EventTab({ onToast }) {
               </div>
             </div>
 
+            {/* 반올림 단위 표시 */}
+            <div className="text-xs text-gray-400 pb-2">
+              반올림: {formatNumber(roundUnit)}원 단위
+            </div>
+
             <div className="flex-1" />
 
             {workingStats && (
@@ -338,11 +418,32 @@ export default function EventTab({ onToast }) {
                 {workingStats.priced > 0 && (
                   <>
                     {' '} | 가격 설정 <span className="font-bold text-indigo-600">{workingStats.priced}개</span>
+                    {' '} | 합계 <span className="font-bold text-indigo-600">{formatNumber(workingStats.totalPrice)}원</span>
                   </>
                 )}
               </div>
             )}
           </div>
+
+          {/* 할인율 적용 피드백 */}
+          {discountFeedback && (
+            <div className="mb-3 px-4 py-2.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700 space-y-0.5">
+              <div className="font-bold">할인율 {discountFeedback.discount}% 적용 결과</div>
+              <div>
+                변경된 패키지: <span className="font-bold">{discountFeedback.changedCount}</span>/{discountFeedback.totalCount}개
+                {discountFeedback.totalBefore > 0 && (
+                  <> | 합계: {formatNumber(discountFeedback.totalBefore)}원 &rarr; <span className="font-bold">{formatNumber(discountFeedback.totalAfter)}원</span>
+                    {discountFeedback.diff !== 0 && (
+                      <span className={discountFeedback.diff > 0 ? ' text-green-600' : ' text-red-500'}>
+                        {' '}({discountFeedback.diff > 0 ? '-' : '+'}{formatNumber(Math.abs(discountFeedback.diff))}원)
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="text-gray-500">반올림 단위: {formatNumber(discountFeedback.roundUnit)}원</div>
+            </div>
+          )}
 
           {/* 패키지 카드 그리드 */}
           <div className="space-y-3">
@@ -354,14 +455,23 @@ export default function EventTab({ onToast }) {
                 onChange={(updated) => updatePackage(idx, updated)}
                 onRemove={() => removePackage(idx)}
                 onDuplicate={() => duplicatePackage(idx)}
+                onMoveUp={idx > 0 ? () => movePackage(idx, -1) : undefined}
+                onMoveDown={idx < packages.length - 1 ? () => movePackage(idx, 1) : undefined}
                 branchProcedures={branchProcedures}
                 activeBranch={activeBranch}
+                roundUnit={roundUnit}
               />
             ))}
           </div>
 
           {/* 하단 액션 */}
           <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-gray-200">
+            <button
+              onClick={addEmptyPackage}
+              className="px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors font-medium"
+            >
+              + 패키지 추가
+            </button>
             <button
               onClick={() => setPackages([])}
               className="px-3 py-2 text-xs text-gray-500 hover:bg-gray-100 rounded transition-colors"
