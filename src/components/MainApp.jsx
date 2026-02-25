@@ -11,6 +11,7 @@ import Toast from './Toast';
 import PricingTab from './pricing/PricingTab';
 import EventTab from './event/EventTab';
 import FloatingNotepad from './event/FloatingNotepad';
+import FloatingCalculator from './event/FloatingCalculator';
 import BranchTab from './branch/BranchTab';
 import { autoLoad, saveRoundUnit, loadRoundUnit } from '../utils/storage';
 
@@ -59,6 +60,7 @@ export default function MainApp() {
             <>
               <EventTab onToast={showToast} roundUnit={roundUnit} />
               <FloatingNotepad />
+              <FloatingCalculator />
             </>
           )}
           {mainTab === 'branch' && (

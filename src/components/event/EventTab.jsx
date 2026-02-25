@@ -322,10 +322,14 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
   // 저장된 패키지 필터링
   const filteredSavedPackages = useMemo(() => {
     if (!packageQuery.trim()) return savedPackages;
-    const q = packageQuery.replace(/\s+/g, '').toLowerCase();
+    const tokens = packageQuery.trim().toLowerCase().split(/\s+/).filter((t) => t.length >= 1);
     return savedPackages.filter((pkg) => {
-      if (pkg.name?.replace(/\s+/g, '').toLowerCase().includes(q)) return true;
-      if (pkg.items?.some((item) => item.procedureName?.replace(/\s+/g, '').toLowerCase().includes(q))) return true;
+      const nameNorm = pkg.name?.replace(/\s+/g, '').toLowerCase() || '';
+      if (tokens.every((t) => nameNorm.includes(t))) return true;
+      if (pkg.items?.some((item) => {
+        const procNorm = item.procedureName?.replace(/\s+/g, '').toLowerCase() || '';
+        return tokens.every((t) => procNorm.includes(t));
+      })) return true;
       return false;
     });
   }, [savedPackages, packageQuery]);

@@ -161,20 +161,22 @@ export default function PackageCard({
   // 시술명 검색 (지점 수가 + 최근 사용)
   const findNameMatches = (query) => {
     if (!query) return { recent: [], branch: [] };
-    const q = query.replace(/\s+/g, '').toLowerCase();
+    const q = query.trim().toLowerCase();
     if (q.length < 1) return { recent: [], branch: [] };
+
+    // 토큰 분리 (공백 기준) - 각 토큰이 모두 포함되어야 매칭
+    const tokens = q.split(/\s+/).filter((t) => t.length >= 1);
+    const matchesFn = (name) => {
+      const normalized = name.replace(/\s+/g, '').toLowerCase();
+      return tokens.every((t) => normalized.includes(t));
+    };
 
     // 최근 사용
     const recentAll = loadRecentProcedures();
-    const recent = recentAll.filter((r) =>
-      r.name.replace(/\s+/g, '').toLowerCase().includes(q)
-    ).slice(0, 5);
+    const recent = recentAll.filter((r) => matchesFn(r.name)).slice(0, 5);
 
     // 지점 수가
-    const branch = branchProcedures.filter((bp) => {
-      const name = bp.name.replace(/\s+/g, '').toLowerCase();
-      return name.includes(q);
-    }).slice(0, 15);
+    const branch = branchProcedures.filter((bp) => matchesFn(bp.name)).slice(0, 15);
 
     return { recent, branch };
   };
@@ -214,11 +216,15 @@ export default function PackageCard({
 
   const findBranchMatches = (procedureName) => {
     if (!procedureName || !branchProcedures.length) return [];
-    const q = procedureName.replace(/\s+/g, '').toLowerCase();
+    const q = procedureName.trim().toLowerCase();
     if (q.length < 2) return [];
+    const tokens = q.split(/\s+/).filter((t) => t.length >= 1);
     return branchProcedures.filter((bp) => {
       const name = bp.name.replace(/\s+/g, '').toLowerCase();
-      return name.includes(q) || q.includes(name);
+      const qNorm = q.replace(/\s+/g, '');
+      // 전체 문자열 포함 OR 모든 토큰 포함
+      return name.includes(qNorm) || qNorm.includes(name) ||
+        (tokens.length > 1 && tokens.every((t) => name.includes(t)));
     }).slice(0, 10);
   };
 
