@@ -150,11 +150,9 @@ export default function PackageCard({ pkg, index, onChange, onRemove, onDuplicat
                      focus:outline-none focus:ring-0 placeholder-gray-400"
           placeholder="패키지명"
         />
-        {/* 메모 표시 */}
+        {/* 메모 아이콘 (헤더에) */}
         {pkg.memo && (
-          <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded shrink-0 max-w-[120px] truncate" title={pkg.memo}>
-            {pkg.memo}
-          </span>
+          <span className="text-[10px] text-amber-500 shrink-0" title={pkg.memo}>&#x1F4DD;</span>
         )}
         {onDuplicate && (
           <button
@@ -173,6 +171,15 @@ export default function PackageCard({ pkg, index, onChange, onRemove, onDuplicat
           &times;
         </button>
       </div>
+
+      {/* 메모 전체 표시 */}
+      {pkg.memo && (
+        <div className="px-4 py-1.5 bg-amber-50 border-b border-amber-100">
+          <p className="text-[11px] text-amber-700 leading-relaxed whitespace-pre-wrap break-words">
+            {pkg.memo}
+          </p>
+        </div>
+      )}
 
       {/* 구성 시술 */}
       <div className="px-4 py-3 space-y-1.5">
@@ -204,34 +211,38 @@ export default function PackageCard({ pkg, index, onChange, onRemove, onDuplicat
 
                 {/* 자동완성 드롭다운 */}
                 {isNameOpen && (
-                  <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-xl
-                                  max-h-56 overflow-y-auto w-full min-w-[300px]">
-                    <div className="px-3 py-1.5 bg-indigo-50 border-b border-gray-200 text-[10px] font-medium text-indigo-600 sticky top-0">
+                  <div
+                    className="absolute left-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-xl
+                                  max-h-56 w-full min-w-[300px]"
+                    onMouseDown={(e) => e.preventDefault()}
+                  >
+                    <div className="px-3 py-1.5 bg-indigo-50 border-b border-gray-200 text-[10px] font-medium text-indigo-600 sticky top-0 z-10">
                       {activeBranch} 수가표 검색 ({nameMatches.length}건)
                     </div>
-                    {nameMatches.map((bp, mi) => (
-                      <button
-                        key={mi}
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => selectBranchItem(idx, bp)}
-                        className={`w-full px-3 py-2 text-left transition-colors
-                                   flex items-center justify-between gap-2 text-xs border-b border-gray-50 last:border-b-0
-                                   ${mi === highlightedIdx ? 'bg-indigo-100' : 'hover:bg-indigo-50'}`}
-                      >
-                        <div className="min-w-0 flex items-center gap-1.5">
-                          <span className="text-gray-700 font-medium">{bp.name}</span>
-                          {bp.category && (
-                            <span className="text-[10px] text-gray-400 bg-gray-100 px-1 py-0.5 rounded shrink-0">
-                              {bp.category}
-                            </span>
-                          )}
-                        </div>
-                        <span className="font-bold text-indigo-700 shrink-0">
-                          {formatNumber(bp.standardPrice)}원
-                        </span>
-                      </button>
-                    ))}
+                    <div className="max-h-48 overflow-y-auto overscroll-contain">
+                      {nameMatches.map((bp, mi) => (
+                        <button
+                          key={mi}
+                          type="button"
+                          onClick={() => selectBranchItem(idx, bp)}
+                          className={`w-full px-3 py-2 text-left transition-colors
+                                     flex items-center justify-between gap-2 text-xs border-b border-gray-50 last:border-b-0
+                                     ${mi === highlightedIdx ? 'bg-indigo-100' : 'hover:bg-indigo-50'}`}
+                        >
+                          <div className="min-w-0 flex items-center gap-1.5">
+                            <span className="text-gray-700 font-medium">{bp.name}</span>
+                            {bp.category && (
+                              <span className="text-[10px] text-gray-400 bg-gray-100 px-1 py-0.5 rounded shrink-0">
+                                {bp.category}
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-bold text-indigo-700 shrink-0">
+                            {formatNumber(bp.standardPrice)}원
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
