@@ -16,7 +16,7 @@
  *   - 최근 사용 시술 추천
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import BulkPackageInput from './BulkPackageInput';
 import PackageCard from './PackageCard';
 import ProcedureLibrary from './ProcedureLibrary';
@@ -311,6 +311,56 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
     return { total: packages.length, priced: withPrice.length, totalPrice: total };
   }, [packages]);
 
+  // ── 패키지 카드 영역 리사이즈 ──
+  const [cardAreaHeight, setCardAreaHeight] = useState(() => {
+    try {
+      const saved = localStorage.getItem('vans-pricing-card-container-height');
+      return saved ? Number(saved) : 0; // 0 = auto (제한 없음)
+    } catch { return 0; }
+  });
+  const resizingRef = useRef(false);
+  const resizeStartY = useRef(0);
+  const resizeStartH = useRef(0);
+  const cardAreaRef = useRef(null);
+
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    resizeStartY.current = e.clientY;
+    resizeStartH.current = cardAreaHeight || (cardAreaRef.current?.scrollHeight || 400);
+
+    const handleMove = (ev) => {
+      if (!resizingRef.current) return;
+      const delta = ev.clientY - resizeStartY.current;
+      const newH = Math.max(200, Math.min(window.innerHeight - 200, resizeStartH.current + delta));
+      setCardAreaHeight(newH);
+    };
+
+    const handleUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setCardAreaHeight((h) => {
+        if (h > 0) {
+          try { localStorage.setItem('vans-pricing-card-container-height', String(h)); } catch {}
+        }
+        return h;
+      });
+    };
+
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+  }, [cardAreaHeight]);
+
+  const resetCardAreaHeight = useCallback(() => {
+    setCardAreaHeight(0);
+    try { localStorage.removeItem('vans-pricing-card-container-height'); } catch {}
+  }, []);
+
   return (
     <div className="space-y-4">
       {/* 상단: 벌크 입력 + 시술 라이브러리 토글 */}
@@ -445,8 +495,12 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
             </div>
           )}
 
-          {/* 패키지 카드 그리드 */}
-          <div className="space-y-3">
+          {/* 패키지 카드 그리드 (리사이즈 가능) */}
+          <div
+            ref={cardAreaRef}
+            className="space-y-3 overflow-y-auto overscroll-contain"
+            style={cardAreaHeight > 0 ? { maxHeight: cardAreaHeight, minHeight: 200 } : undefined}
+          >
             {packages.map((pkg, idx) => (
               <PackageCard
                 key={pkg.id || idx}
@@ -462,6 +516,31 @@ export default function EventTab({ onToast, roundUnit = 10000 }) {
                 roundUnit={roundUnit}
               />
             ))}
+          </div>
+
+          {/* 리사이즈 드래그 핸들 */}
+          <div
+            className="resize-handle-y flex items-center justify-center py-1 -mx-4 sm:-mx-6 px-4 sm:px-6
+                       hover:bg-gray-100 transition-colors group border-t border-gray-100"
+            onMouseDown={handleResizeStart}
+            title="드래그하여 높이 조절"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-0.5 bg-gray-300 rounded-full group-hover:bg-indigo-400 transition-colors" />
+              <span className="text-[10px] text-gray-400 group-hover:text-indigo-500 transition-colors select-none">
+                {cardAreaHeight > 0 ? `${Math.round(cardAreaHeight)}px` : '자동'}
+              </span>
+              <div className="w-8 h-0.5 bg-gray-300 rounded-full group-hover:bg-indigo-400 transition-colors" />
+            </div>
+            {cardAreaHeight > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); resetCardAreaHeight(); }}
+                className="ml-2 text-[10px] text-gray-400 hover:text-indigo-600 transition-colors"
+                title="높이 자동으로 되돌리기"
+              >
+                초기화
+              </button>
+            )}
           </div>
 
           {/* 하단 액션 */}

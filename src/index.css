@@ -131,6 +131,20 @@ input[type='number'] {
   border-radius: 2px;
 }
 
+/* ── 리사이즈 핸들 ── */
+.resize-handle-y {
+  cursor: row-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+/* ── 좁은 화면에서 메모장 자동 숨김 ── */
+@media (max-width: 1399px) {
+  .floating-notepad-auto-hide {
+    display: none;
+  }
+}
+
 /* ── 인쇄 스타일 ── */
 @media print {
   /* 입력 폼, 버튼 등 숨기기 */
