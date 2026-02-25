@@ -1,34 +1,294 @@
 /**
  * packagePricing.js - 패키지 이벤트 계산 로직
+ *
+ * 지원 형식:
+ *   1) 기본: ●패키지명 가격원
+ *   2) 확장: ■패키지명 가격원 / ㄴ시술명: 1체 X만원 / 이벤트 Y만원
  */
 
 import { roundPrice } from './pricing';
 
-/**
- * 벌크 텍스트에서 패키지 목록 파싱
- *
- * 지원 형식:
- *   ●패키지명 가격원
- *   ●패키지명 가격
- *   - 패키지명 가격원
- *   패키지명 가격원
- *
- * 가격에 콤마 포함 가능: 690,000원
- *
- * @param {string} text - 벌크 입력 텍스트
- * @returns {Array<object>} 파싱된 패키지 배열
- */
-export function parsePackageText(text) {
-  if (!text || !text.trim()) return [];
+// ─── 한국어 가격 파싱 헬퍼 ───
 
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+/**
+ * 한국어 가격 문자열 파싱
+ * "5.5만원" → 55000, "5.5만" → 55000, "99,000원" → 99000, "9900" → 9900
+ */
+function parseKoreanPrice(str) {
+  if (!str) return 0;
+  str = str.toString().trim();
+
+  // "5.5만원" or "5.5만" or "85만원"
+  const manMatch = str.match(/([\d.]+)\s*만/);
+  if (manMatch) {
+    return Math.round(parseFloat(manMatch[1]) * 10000);
+  }
+
+  // "99,000원" or "99000" or "9,900원"
+  const wonMatch = str.match(/([\d,]+)/);
+  if (wonMatch) {
+    return Number(wonMatch[1].replace(/,/g, '')) || 0;
+  }
+
+  return 0;
+}
+
+/**
+ * 가격 문자열에서 1체/이벤트 가격 추출
+ * "1체 5.5만원 / 이벤트 12.9만원" → { trial: 55000, event: 129000 }
+ * "이벤트 2.3만원" → { trial: 0, event: 23000 }
+ * "5.3만원" → { trial: 0, event: 53000 }
+ */
+function extractPrices(str) {
+  let trial = 0;
+  let event = 0;
+
+  // "1체 5.5만원" or "1체 9,900원"
+  const trialMatch = str.match(/1체\s+([\d.,]+\s*만?\s*원?)/);
+  if (trialMatch) {
+    trial = parseKoreanPrice(trialMatch[1]);
+  }
+
+  // "이벤트 12.9만원" or "1회 이벤트 59만원"
+  const eventMatch = str.match(/이벤트\s+([\d.,]+\s*만?\s*원?)/);
+  if (eventMatch) {
+    event = parseKoreanPrice(eventMatch[1]);
+  }
+
+  // 라벨 없는 단일 가격: "5.3만원"
+  if (!trial && !event) {
+    const rawPrice = parseKoreanPrice(str);
+    if (rawPrice > 0) {
+      event = rawPrice;
+    }
+  }
+
+  return { trial, event };
+}
+
+// ─── 확장 포맷 파서 (■/ㄴ) ───
+
+/**
+ * ㄴ 하위항목 라인 파싱
+ * "ㄴ물광2cc: 1체 5.5만원 / 이벤트 12.9만원" → [{ name, trialPrice, eventPrice }]
+ * "ㄴ스킨B 원더 1부위: 이벤트 2.3만원 / 얼전: 이벤트 5.3만원" → 2개 항목
+ * "ㄴ코 프락셀X" → [{ isNote: true }]
+ */
+function parseSubItemLine(line) {
+  const content = line.replace(/^ㄴ\s*/, '').trim();
+  if (!content) return [];
+
+  // 참고용 메모: 콜론 없고 가격 정보 없음 (예: "코 프락셀X")
+  if (!content.includes(':')) {
+    return [{ name: content, trialPrice: 0, eventPrice: 0, isNote: true }];
+  }
+
+  // "/" 로 분리 후 각 세그먼트 처리
+  const segments = content.split('/').map((s) => s.trim());
+  const results = [];
+  let pendingName = '';
+  let pendingTrial = 0;
+  let pendingEvent = 0;
+
+  for (const seg of segments) {
+    const colonIdx = seg.indexOf(':');
+
+    if (colonIdx > 0 && !/^\d/.test(seg)) {
+      // 새 항목: "이름: 가격정보"
+      if (pendingName) {
+        results.push({
+          name: pendingName,
+          trialPrice: pendingTrial,
+          eventPrice: pendingEvent,
+          isNote: false,
+        });
+      }
+      pendingName = seg.slice(0, colonIdx).trim();
+      const priceStr = seg.slice(colonIdx + 1).trim();
+      const prices = extractPrices(priceStr);
+      pendingTrial = prices.trial;
+      pendingEvent = prices.event;
+    } else {
+      // 현재 항목의 가격 계속
+      const prices = extractPrices(seg);
+      if (prices.trial) pendingTrial = prices.trial;
+      if (prices.event) pendingEvent = prices.event;
+    }
+  }
+
+  if (pendingName) {
+    results.push({
+      name: pendingName,
+      trialPrice: pendingTrial,
+      eventPrice: pendingEvent,
+      isNote: false,
+    });
+  }
+
+  return results;
+}
+
+/**
+ * ■ 메인 패키지 라인 파싱 (유연한 가격 추출)
+ * 만원/원 형식 모두 지원, 괄호 메모 추출, 가격이 중간에 있는 경우 처리
+ */
+function parseEnhancedMainLine(text) {
+  // 괄호 메모 추출
+  const memos = [];
+  let stripped = text.replace(/\(([^)]*)\)/g, (_, c) => {
+    memos.push(c.trim());
+    return ' ';
+  });
+  stripped = stripped.replace(/\s+/g, ' ').trim();
+
+  let name = stripped;
+  let price = 0;
+  let m;
+
+  // 1) 끝에 만원: "85만원"
+  m = stripped.match(/\s+([\d.]+)\s*만\s*원?\s*$/);
+  if (m) {
+    price = Math.round(parseFloat(m[1]) * 10000);
+    name = stripped.slice(0, m.index).trim();
+  }
+
+  // 2) 끝에 원: "99000원"
+  if (!price) {
+    m = stripped.match(/\s+([\d,]+)\s*원?\s*$/);
+    if (m) {
+      const val = Number(m[1].replace(/,/g, ''));
+      if (val >= 1000) {
+        price = val;
+        name = stripped.slice(0, m.index).trim();
+      }
+    }
+  }
+
+  // 3) 중간에 원 (뒤에 설명 있음): "180000원 1년 무제한"
+  if (!price) {
+    m = stripped.match(/\s+([\d,]{4,})\s*원\s/);
+    if (m) {
+      price = Number(m[1].replace(/,/g, ''));
+      name = stripped.slice(0, m.index).trim();
+      const trailing = stripped.slice(m.index + m[0].length).trim();
+      if (trailing) memos.push(trailing);
+    }
+  }
+
+  // 4) 중간에 만원 (뒤에 설명 있음)
+  if (!price) {
+    m = stripped.match(/\s+([\d.]+)\s*만\s*원?\s/);
+    if (m) {
+      price = Math.round(parseFloat(m[1]) * 10000);
+      name = stripped.slice(0, m.index).trim();
+      const trailing = stripped.slice(m.index + m[0].length).trim();
+      if (trailing) memos.push(trailing);
+    }
+  }
+
+  return {
+    id: Date.now() + Math.random(),
+    name,
+    packagePrice: price,
+    memo: memos.filter(Boolean).join('; ') || '',
+    subItems: [],
+    description: [],
+  };
+}
+
+/**
+ * 확장 패키지 마무리: subItems → items 변환
+ * ㄴ 하위항목이 있으면 그 가격 사용, 없으면 + 분리 방식 사용
+ */
+function finalizeEnhancedPackage(raw) {
+  const { subItems, description, memo, ...rest } = raw;
+
+  let items;
+  if (subItems && subItems.length > 0) {
+    // 가격 있는 하위항목만 items로 변환
+    const pricedSubs = subItems.filter(
+      (s) => !s.isNote && (s.trialPrice > 0 || s.eventPrice > 0),
+    );
+    if (pricedSubs.length > 0) {
+      items = pricedSubs.map((s) => ({
+        procedureName: s.name,
+        quantity: 1,
+        individualPrice: s.trialPrice || s.eventPrice || 0,
+        priceSource: s.trialPrice ? 'trial' : 'event',
+      }));
+    }
+  }
+
+  // 하위항목 없으면 기존 + 분리 방식
+  if (!items || items.length === 0) {
+    items = parsePackageItems(raw.name);
+  }
+
+  // 설명 + 메모 합치기
+  let finalMemo = memo || '';
+  if (description && description.length > 0) {
+    const descText = description.join(' / ');
+    finalMemo = finalMemo ? `${finalMemo}; ${descText}` : descText;
+  }
+
+  return {
+    ...rest,
+    items,
+    memo: finalMemo || undefined,
+  };
+}
+
+/**
+ * 확장 포맷 파서 (■/ㄴ 구조 입력)
+ */
+function parseEnhancedFormat(lines) {
+  const packages = [];
+  let current = null;
+
+  for (const line of lines) {
+    // ㄴ 하위항목
+    if (line.startsWith('ㄴ')) {
+      if (current) {
+        const subs = parseSubItemLine(line);
+        current.subItems.push(...subs);
+      }
+      continue;
+    }
+
+    // ■ 메인 패키지
+    if (line.startsWith('■')) {
+      if (current) {
+        packages.push(finalizeEnhancedPackage(current));
+      }
+      const cleaned = line.replace(/^■\s*/, '').trim();
+      if (cleaned) {
+        current = parseEnhancedMainLine(cleaned);
+      }
+      continue;
+    }
+
+    // 기타: 현재 패키지의 설명으로 추가
+    if (current) {
+      current.description.push(line);
+    }
+  }
+
+  if (current) {
+    packages.push(finalizeEnhancedPackage(current));
+  }
+
+  return packages;
+}
+
+// ─── 기본 포맷 파서 (●/- 방식) ───
+
+function parseSimpleFormat(lines) {
   const packages = [];
 
   for (const line of lines) {
-    const cleaned = line.replace(/^[●•·\-\*]\s*/, '');
+    const cleaned = line.replace(/^[●•·\-*■]\s*/, '');
     if (!cleaned) continue;
 
-    // 가격 추출: 마지막에 나오는 숫자(콤마 포함) + 선택적 "원"
     const priceMatch = cleaned.match(/\s+([\d,]+)\s*원?\s*$/);
     if (!priceMatch) {
       packages.push({
@@ -42,7 +302,6 @@ export function parsePackageText(text) {
 
     const name = cleaned.slice(0, priceMatch.index).trim();
     const price = Number(priceMatch[1].replace(/,/g, '')) || 0;
-
     if (!name) continue;
 
     packages.push({
@@ -54,6 +313,26 @@ export function parsePackageText(text) {
   }
 
   return packages;
+}
+
+// ─── 공통 함수 ───
+
+/**
+ * 벌크 텍스트에서 패키지 목록 파싱
+ * ■/ㄴ 형식 감지 시 확장 파서, 아니면 기본 파서 사용
+ */
+export function parsePackageText(text) {
+  if (!text || !text.trim()) return [];
+
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  // ■ 또는 ㄴ 이 있으면 확장 포맷
+  const hasEnhanced = lines.some((l) => l.startsWith('■') || l.startsWith('ㄴ'));
+  if (hasEnhanced) {
+    return parseEnhancedFormat(lines);
+  }
+
+  return parseSimpleFormat(lines);
 }
 
 /**
@@ -80,9 +359,6 @@ function parsePackageItems(packageName) {
 
 /**
  * 시술 라이브러리에서 가격 매칭
- * @param {Array} packages - parsePackageText 결과
- * @param {Array} procedures - 시술 라이브러리
- * @returns {Array} 가격이 매칭된 패키지 배열
  */
 export function matchProcedurePrices(packages, procedures) {
   if (!procedures || procedures.length === 0) return packages;
@@ -90,6 +366,11 @@ export function matchProcedurePrices(packages, procedures) {
   return packages.map((pkg) => ({
     ...pkg,
     items: pkg.items.map((item) => {
+      // 이미 ㄴ 파싱에서 가격이 설정된 경우 스킵
+      if (item.individualPrice > 0 && (item.priceSource === 'trial' || item.priceSource === 'event')) {
+        return item;
+      }
+
       const match = procedures.find((p) =>
         p.name && item.procedureName &&
         (p.name.includes(item.procedureName) ||
@@ -111,9 +392,6 @@ export function matchProcedurePrices(packages, procedures) {
 
 /**
  * 지점 수가 라이브러리에서 가격 매칭
- * @param {Array} packages - parsePackageText 결과
- * @param {Array} branchProcedures - 지점 CSV 데이터 [{name, standardPrice, category}]
- * @returns {Array} 가격이 매칭된 패키지 배열
  */
 export function matchBranchPrices(packages, branchProcedures) {
   if (!branchProcedures || branchProcedures.length === 0) return packages;
@@ -121,7 +399,7 @@ export function matchBranchPrices(packages, branchProcedures) {
   return packages.map((pkg) => ({
     ...pkg,
     items: pkg.items.map((item) => {
-      // 이미 수동 라이브러리에서 가격이 매칭된 경우 스킵
+      // 이미 가격 매칭된 경우 스킵 (ㄴ 파싱, 라이브러리)
       if (item.individualPrice > 0 && item.priceSource !== 'branch') return item;
 
       const match = findBestBranchMatch(item.procedureName, branchProcedures);
@@ -175,10 +453,6 @@ function findBestBranchMatch(name, procedures) {
 
 /**
  * 목표 할인율로 패키지가 자동 계산
- * @param {object} pkg - 패키지 (items 포함)
- * @param {number} targetDiscountPercent - 목표 할인율 (예: 30 → 30%)
- * @param {number} roundUnit - 반올림 단위
- * @returns {number} 계산된 패키지가
  */
 export function calcPackagePriceFromDiscount(pkg, targetDiscountPercent, roundUnit = 10000) {
   const totalRegular = pkg.items.reduce(
@@ -192,8 +466,6 @@ export function calcPackagePriceFromDiscount(pkg, targetDiscountPercent, roundUn
 
 /**
  * 패키지 요약 계산
- * @param {object} pkg - 패키지 객체
- * @returns {object} 요약 정보
  */
 export function computePackageSummary(pkg) {
   if (!pkg || !pkg.items || pkg.items.length === 0) {
